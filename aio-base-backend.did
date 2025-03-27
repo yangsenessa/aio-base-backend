@@ -1,0 +1,120 @@
+type Platform = variant {
+  Windows;
+  Linux;
+  Both;
+};
+
+type WorkStatus = variant {
+  Todo;
+  InProgress;
+  Completed;
+  Cancelled;
+};
+
+type TraceStatus = variant {
+  Ok;
+  Recall;
+  Fail;
+};
+
+type IOData = record {
+  data_type: text;
+  value: text;
+};
+
+type CallItem = record {
+  id: nat64;
+  protocol: text;
+  agent: text;
+  call_type: text;
+  method: text;
+  inputs: vec IOData;  // Changed from input to inputs (array)
+  outputs: vec IOData; // Changed from output to outputs (array)
+  status: text;
+};
+
+type TraceItem = record {
+  id: nat64;
+  trace_id: text;
+  owner: text;
+  created_at: nat64;
+  updated_at: nat64;
+  calls: vec CallItem;
+  metadata: opt text;
+};
+
+type AgentItem = record {
+  id: nat64;
+  name: text;
+  description: text;
+  author: text;
+  owner: text;
+  platform: Platform;
+  git_repo: text;
+  homepage: opt text;
+  input_params: opt text;
+  output_example: opt text;
+  image_url: opt text;
+  exec_file_url: opt text;
+  version: text;
+};
+
+type McpItem = record {
+  id: nat64;
+  name: text;
+  description: text;
+  author: text;
+  owner: text;
+  git_repo: text;
+  homepage: opt text;
+  entities: text;
+  relations: text;
+  observations: text;
+  version: text;
+};
+
+type WorkItem = record {
+  id: nat64;
+  title: text;
+  description: text;
+  status: WorkStatus;
+  created_at: nat64;
+  updated_at: nat64;
+  owner: text;
+  assigned_to: opt text;
+  tags: vec text;
+  metadata: opt text;
+};
+
+service : {
+  // Existing service
+  "greet": (text) -> (text) query;
+  
+  // Agent Asset API
+  "get_agent_item": (nat64) -> (opt AgentItem) query;
+  "get_all_agent_items": () -> (vec AgentItem) query;
+  "get_user_agent_items": () -> (vec AgentItem) query;
+  "get_user_agent_items_paginated": (nat64, nat) -> (vec AgentItem) query;
+  "get_agent_items_paginated": (nat64, nat) -> (vec AgentItem) query;
+  "get_agent_item_by_name": (text) -> (opt AgentItem) query;
+  "add_agent_item": (AgentItem) -> (variant { Ok: nat64; Err: text });
+  "update_agent_item": (nat64, AgentItem) -> (variant { Ok; Err: text });
+  
+  // MCP Asset API
+  "get_mcp_item": (nat64) -> (opt McpItem) query;
+  "get_all_mcp_items": () -> (vec McpItem) query;
+  "get_user_mcp_items": () -> (vec McpItem) query;
+  "get_user_mcp_items_paginated": (nat64, nat) -> (vec McpItem) query;
+  "get_mcp_items_paginated": (nat64, nat) -> (vec McpItem) query;
+  "get_mcp_item_by_name": (text) -> (opt McpItem) query;
+  "add_mcp_item": (McpItem) -> (variant { Ok: nat64; Err: text });
+  "update_mcp_item": (nat64, McpItem) -> (variant { Ok; Err: text });
+  
+  // Work Ledger API - Trace System
+  "get_trace": (nat64) -> (opt TraceItem) query;
+  "get_trace_by_id": (text) -> (opt TraceItem) query;
+  "get_user_traces": () -> (vec TraceItem) query;
+  "get_user_traces_paginated": (nat64, nat) -> (vec TraceItem) query;
+  "get_traces_paginated": (nat64, nat) -> (vec TraceItem) query;
+  "add_trace": (TraceItem) -> (variant { Ok: nat64; Err: text });
+}
