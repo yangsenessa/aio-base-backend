@@ -17,10 +17,14 @@ pub struct McpItem {
     pub owner: String, // Principal ID as string
     pub git_repo: String,
     pub homepage: Option<String>,
-    pub entities: String,
-    pub relations: String,
-    pub observations: String,
-    pub version: String
+    pub remote_endpoint: Option<String>,
+    pub mcp_type: String, // 'stdio' | 'http' | 'sse'
+    pub community_body: Option<String>,
+    // MCP capabilities
+    pub resources: bool,
+    pub prompts: bool,
+    pub tools: bool,
+    pub sampling: bool,
 }
 
 // Define the key for user data association
@@ -74,7 +78,7 @@ thread_local! {
 }
 
 /// Add a new MCP item to the storage
-pub fn add_mcp_item(mut mcp: McpItem) -> Result<u64, String> {
+pub fn add_mcp_item( mcp: McpItem, caller_id: String) -> Result<u64, String> {
     MCP_ITEMS.with(|items| {
         let items = items.borrow_mut(); // Removed mut from items
         let total_items = items.len();
@@ -89,14 +93,15 @@ pub fn add_mcp_item(mut mcp: McpItem) -> Result<u64, String> {
         
         // If name is unique, add the new MCP
         let index = items.len();
-        mcp.id = index;
-        items.push(&mcp).unwrap();
+        let mut mcp_item = mcp.clone();
+        mcp_item.id = index;
+        items.push(&mcp_item).unwrap();
         
         // Create owner index entry
         USER_MCP_INDEX.with(|user_index| {
             let mut user_index = user_index.borrow_mut();
             let key = UserMcpKey { 
-                owner: mcp.owner.clone(), 
+                owner: mcp_item.owner.clone(), 
                 item_id: index 
             };
             user_index.insert(key, ());

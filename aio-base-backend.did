@@ -67,10 +67,13 @@ type McpItem = record {
   owner: text;
   git_repo: text;
   homepage: opt text;
-  entities: text;
-  relations: text;
-  observations: text;
-  version: text;
+  remote_endpoint: opt text;
+  mcp_type: text;
+  community_body: opt text;
+  resources: bool;
+  prompts: bool;
+  tools: bool;
+  sampling: bool;
 };
 
 type WorkItem = record {
@@ -107,7 +110,7 @@ service : {
   "get_user_mcp_items_paginated": (nat64, nat) -> (vec McpItem) query;
   "get_mcp_items_paginated": (nat64, nat) -> (vec McpItem) query;
   "get_mcp_item_by_name": (text) -> (opt McpItem) query;
-  "add_mcp_item": (McpItem) -> (variant { Ok: nat64; Err: text });
+  "add_mcp_item": (McpItem,text) -> (variant { Ok: nat64; Err: text });
   "update_mcp_item": (nat64, McpItem) -> (variant { Ok; Err: text });
   
   // Work Ledger API - Trace System
