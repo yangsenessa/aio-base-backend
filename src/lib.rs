@@ -51,14 +51,6 @@ fn get_agent_items_paginated(offset: u64, limit: usize) -> Vec<AgentItem> {
     result
 }
 
-#[ic_cdk::query]
-fn get_user_agent_items_paginated(offset: u64, limit: usize) -> Vec<AgentItem> {
-    let caller_id = caller().to_string();
-    ic_cdk::println!("CALL[get_user_agent_items_paginated] Input: caller_id={}, offset={}, limit={}", caller_id, offset, limit);
-    let result = agent_asset_types::get_user_agent_items_paginated(caller_id, offset, limit);
-    ic_cdk::println!("CALL[get_user_agent_items_paginated] Output: count={}", result.len());
-    result
-}
 
 #[ic_cdk::query]
 fn get_agent_item_by_name(name: String) -> Option<AgentItem> {

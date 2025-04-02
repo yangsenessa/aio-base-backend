@@ -208,17 +208,6 @@ pub fn get_agent_items_paginated(offset: u64, limit: usize) -> Vec<AgentItem> {
     })
 }
 
-/// Get agent items for a specific user with pagination
-pub fn get_user_agent_items_paginated(owner: String, offset: u64, limit: usize) -> Vec<AgentItem> {
-    let user_items = get_user_agent_items(owner);
-    
-    if offset >= user_items.len() as u64 {
-        return Vec::new();
-    }
-    
-    let end = std::cmp::min(offset as usize + limit, user_items.len());
-    user_items[offset as usize..end].to_vec()
-}
 
 /// Get an agent item by name
 pub fn get_agent_item_by_name(name: String) -> Option<AgentItem> {
