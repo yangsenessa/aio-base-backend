@@ -16,6 +16,7 @@ pub struct McpItem {
     pub author: String,
     pub owner: String, // Principal ID as string
     pub git_repo: String,
+    pub exec_file:Option<String>,
     pub homepage: Option<String>,
     pub remote_endpoint: Option<String>,
     pub mcp_type: String, // 'stdio' | 'http' | 'sse'

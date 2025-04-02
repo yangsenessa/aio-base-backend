@@ -49,7 +49,7 @@ type AgentItem = record {
   description: text;
   author: text;
   owner: text;
-  platform: Platform;
+  platform: opt Platform;
   git_repo: text;
   homepage: opt text;
   input_params: opt text;
@@ -66,6 +66,7 @@ type McpItem = record {
   author: text;
   owner: text;
   git_repo: text;
+  exec_file:opt text;
   homepage: opt text;
   remote_endpoint: opt text;
   mcp_type: text;
@@ -97,18 +98,18 @@ service : {
   "get_agent_item": (nat64) -> (opt AgentItem) query;
   "get_all_agent_items": () -> (vec AgentItem) query;
   "get_user_agent_items": () -> (vec AgentItem) query;
-  "get_user_agent_items_paginated": (nat64, nat) -> (vec AgentItem) query;
-  "get_agent_items_paginated": (nat64, nat) -> (vec AgentItem) query;
+  "get_user_agent_items_paginated": (nat64, nat64) -> (vec AgentItem) query;
+  "get_agent_items_paginated": (nat64, nat64) -> (vec AgentItem) query;
   "get_agent_item_by_name": (text) -> (opt AgentItem) query;
-  "add_agent_item": (AgentItem) -> (variant { Ok: nat64; Err: text });
+  "add_agent_item": (AgentItem,text) -> (variant { Ok: nat64; Err: text });
   "update_agent_item": (nat64, AgentItem) -> (variant { Ok; Err: text });
   
   // MCP Asset API
   "get_mcp_item": (nat64) -> (opt McpItem) query;
   "get_all_mcp_items": () -> (vec McpItem) query;
   "get_user_mcp_items": () -> (vec McpItem) query;
-  "get_user_mcp_items_paginated": (nat64, nat) -> (vec McpItem) query;
-  "get_mcp_items_paginated": (nat64, nat) -> (vec McpItem) query;
+  "get_user_mcp_items_paginated": (nat64, nat64) -> (vec McpItem) query;
+  "get_mcp_items_paginated": (nat64, nat64) -> (vec McpItem) query;
   "get_mcp_item_by_name": (text) -> (opt McpItem) query;
   "add_mcp_item": (McpItem,text) -> (variant { Ok: nat64; Err: text });
   "update_mcp_item": (nat64, McpItem) -> (variant { Ok; Err: text });
@@ -117,7 +118,7 @@ service : {
   "get_trace": (nat64) -> (opt TraceItem) query;
   "get_trace_by_id": (text) -> (opt TraceItem) query;
   "get_user_traces": () -> (vec TraceItem) query;
-  "get_user_traces_paginated": (nat64, nat) -> (vec TraceItem) query;
-  "get_traces_paginated": (nat64, nat) -> (vec TraceItem) query;
+  "get_user_traces_paginated": (nat64, nat64) -> (vec TraceItem) query;
+  "get_traces_paginated": (nat64, nat64) -> (vec TraceItem) query;
   "add_trace": (TraceItem) -> (variant { Ok: nat64; Err: text });
 }

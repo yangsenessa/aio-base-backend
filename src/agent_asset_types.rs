@@ -22,7 +22,7 @@ pub struct AgentItem {
     pub description: String,
     pub author: String,
     pub owner: String, // Principal ID as string
-    pub platform: Platform,
+    pub platform: Option<Platform>,
     pub git_repo: String,
     pub homepage: Option<String>,
     pub input_params: Option<String>,

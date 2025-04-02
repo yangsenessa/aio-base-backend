@@ -69,10 +69,10 @@ fn get_agent_item_by_name(name: String) -> Option<AgentItem> {
 }
 
 #[ic_cdk::update]
-fn add_agent_item(mut agent: AgentItem) -> Result<u64, String> {
-    let caller_id = caller().to_string();
+fn add_agent_item( agent: AgentItem,principalid: String) -> Result<u64, String> {
     ic_cdk::println!("CALL[add_agent_item] Input: caller_id={}, agent={:?}", caller_id, agent);
-    agent.owner = caller_id;
+    let mut agent_item = agent.clone();
+    agent_item.owner = principalid;
     let result = agent_asset_types::add_agent_item(agent);
     ic_cdk::println!("CALL[add_agent_item] Output: {:?}", result);
     result
