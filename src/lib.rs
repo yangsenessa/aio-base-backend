@@ -51,21 +51,26 @@ fn get_agent_items_paginated(offset: u64, limit: usize) -> Vec<AgentItem> {
     result
 }
 
-
 #[ic_cdk::query]
 fn get_agent_item_by_name(name: String) -> Option<AgentItem> {
     ic_cdk::println!("CALL[get_agent_item_by_name] Input: name={}", name);
     let result = agent_asset_types::get_agent_item_by_name(name);
-    ic_cdk::println!("CALL[get_agent_item_by_name] Output: {:?}", result.is_some());
+    
+    // Print the full details of the result
+    match &result {
+        Some(item) => ic_cdk::println!("CALL[get_agent_item_by_name] Output: Some({:?})", item),
+        None => ic_cdk::println!("CALL[get_agent_item_by_name] Output: None"),
+    }
+    
     result
 }
 
 #[ic_cdk::update]
-fn add_agent_item( agent: AgentItem,principalid: String) -> Result<u64, String> {
+fn add_agent_item(agent: AgentItem, principalid: String) -> Result<u64, String> {
     ic_cdk::println!("CALL[add_agent_item] Input: caller_id={}, agent={:?}", principalid, agent);
     let mut agent_item = agent.clone();
-    agent_item.owner = principalid;
-    let result = agent_asset_types::add_agent_item(agent);
+    agent_item.owner = principalid.clone();
+    let result = agent_asset_types::add_agent_item(agent_item); // Pass the modified agent with owner
     ic_cdk::println!("CALL[add_agent_item] Output: {:?}", result);
     result
 }
@@ -133,7 +138,7 @@ fn get_mcp_item_by_name(name: String) -> Option<McpItem> {
 }
 
 #[ic_cdk::update]
-fn add_mcp_item(mcp: McpItem,principalid: String) -> Result<u64, String> {
+fn add_mcp_item(mcp: McpItem, principalid: String) -> Result<u64, String> {
     let caller_id = principalid;
     ic_cdk::println!("CALL[add_mcp_item] Input: caller_id={}, mcp={:?}", caller_id, mcp);
     let result = mcp_asset_types::add_mcp_item(mcp, caller_id);
