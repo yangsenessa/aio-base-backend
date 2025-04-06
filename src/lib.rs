@@ -1,12 +1,16 @@
 mod agent_asset_types;
 mod mcp_asset_types;
 mod aio_workledger_types;
+// Import the AioIndexManager
+mod aio_protocal_types;
 
 use agent_asset_types::AgentItem;
 use candid::types::principal;
 use mcp_asset_types::McpItem;
 use aio_workledger_types::TraceItem;
 use ic_cdk::caller;
+use aio_protocal_types::AioIndexManager;
+use serde_json;
 
 #[ic_cdk::query]
 fn greet(name: String) -> String {
@@ -229,5 +233,140 @@ fn time_now_string() -> String {
     let day = (days_since_epoch % 365) % 30 + 1;
     
     format!("{:04}{:02}{:02}", year, month, day)
+}
+
+
+
+// ==== AIO Protocol Index API ====
+
+#[ic_cdk::update]
+fn create_aio_index_from_json(json_str: String) -> Result<(), String> {
+    let caller_id = caller().to_string();
+    ic_cdk::println!("CALL[create_aio_index_from_json] Input: caller_id={}", caller_id);
+    let manager = AioIndexManager::new();
+    let result = manager.create_from_json(&json_str);
+    ic_cdk::println!("CALL[create_aio_index_from_json] Output: {:?}", result);
+    result
+}
+
+#[ic_cdk::query]
+fn get_aio_index(id: String) -> Option<aio_protocal_types::AioIndex> {
+    ic_cdk::println!("CALL[get_aio_index] Input: id={}", id);
+    let manager = AioIndexManager::new();
+    let result = manager.read(&id);
+    ic_cdk::println!("CALL[get_aio_index] Output: exists={}", result.is_some());
+    result
+}
+
+#[ic_cdk::query]
+fn get_all_aio_indices() -> Vec<aio_protocal_types::AioIndex> {
+    ic_cdk::println!("CALL[get_all_aio_indices] Input: none");
+    let manager = AioIndexManager::new();
+    let result = manager.list_all();
+    ic_cdk::println!("CALL[get_all_aio_indices] Output: count={}", result.len());
+    result
+}
+
+#[ic_cdk::query]
+fn get_aio_indices_paginated(offset: usize, limit: usize) -> Vec<aio_protocal_types::AioIndex> {
+    ic_cdk::println!("CALL[get_aio_indices_paginated] Input: offset={}, limit={}", offset, limit);
+    let manager = AioIndexManager::new();
+    let result = manager.get_indices_paginated(offset, limit);
+    ic_cdk::println!("CALL[get_aio_indices_paginated] Output: count={}", result.len());
+    result
+}
+
+#[ic_cdk::query]
+fn search_aio_indices_by_keyword(keyword: String) -> Vec<aio_protocal_types::AioIndex> {
+    ic_cdk::println!("CALL[search_aio_indices_by_keyword] Input: keyword={}", keyword);
+    let manager = AioIndexManager::new();
+    let result = manager.search_by_keyword(&keyword);
+    ic_cdk::println!("CALL[search_aio_indices_by_keyword] Output: count={}", result.len());
+    result
+}
+
+#[ic_cdk::update]
+fn update_aio_index(id: String, json_str: String) -> Result<(), String> {
+    let caller_id = caller().to_string();
+    ic_cdk::println!("CALL[update_aio_index] Input: caller_id={}, id={}", caller_id, id);
+    
+    // Parse JSON to AioIndex
+    let parsed: serde_json::Value = match serde_json::from_str(&json_str) {
+        Ok(v) => v,
+        Err(e) => return Err(format!("Invalid JSON: {}", e))
+    };
+    
+    // Create manager and update
+    let manager = AioIndexManager::new();
+    
+    // First verify the index exists
+    if let Some(mut index) = manager.read(&id) {
+        // Update from parsed JSON
+        if let Some(obj) = parsed.as_object() {
+            // Update fields as necessary
+            if let Some(description) = obj.get("description").and_then(|v| v.as_str()) {
+                index.description = description.to_string();
+            }
+            
+            // Additional fields can be updated here...
+            
+            // Then call update
+            let result = manager.update(&id, index);
+            ic_cdk::println!("CALL[update_aio_index] Output: {:?}", result);
+            result
+        } else {
+            Err("Invalid JSON: expected object".to_string())
+        }
+    } else {
+        Err(format!("Index with ID {} not found", id))
+    }
+}
+
+#[ic_cdk::update]
+fn delete_aio_index(id: String) -> Result<(), String> {
+    let caller_id = caller().to_string();
+    ic_cdk::println!("CALL[delete_aio_index] Input: caller_id={}, id={}", caller_id, id);
+    let manager = AioIndexManager::new();
+    let result = manager.delete(&id);
+    ic_cdk::println!("CALL[delete_aio_index] Output: {:?}", result);
+    result
+}
+
+#[ic_cdk::query]
+fn export_aio_index_to_json(id: String) -> Result<String, String> {
+    ic_cdk::println!("CALL[export_aio_index_to_json] Input: id={}", id);
+    let manager = AioIndexManager::new();
+    
+    // Get the index first
+    match manager.read(&id) {
+        Some(index) => {
+            // Serialize to JSON
+            match serde_json::to_string(&index) {
+                Ok(json) => {
+                    ic_cdk::println!("CALL[export_aio_index_to_json] Output: Success (JSON string)");
+                    Ok(json)
+                },
+                Err(e) => {
+                    let error = format!("Failed to serialize index to JSON: {}", e);
+                    ic_cdk::println!("CALL[export_aio_index_to_json] Output: Error - {}", error);
+                    Err(error)
+                }
+            }
+        },
+        None => {
+            let error = format!("Index with ID {} not found", id);
+            ic_cdk::println!("CALL[export_aio_index_to_json] Output: Error - {}", error);
+            Err(error)
+        }
+    }
+}
+
+#[ic_cdk::query]
+fn get_aio_indices_count() -> usize {
+    ic_cdk::println!("CALL[get_aio_indices_count] Input: none");
+    let manager = AioIndexManager::new();
+    let result = manager.count();
+    ic_cdk::println!("CALL[get_aio_indices_count] Output: {}", result);
+    result
 }
 
