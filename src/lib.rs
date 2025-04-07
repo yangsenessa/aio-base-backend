@@ -240,11 +240,10 @@ fn time_now_string() -> String {
 // ==== AIO Protocol Index API ====
 
 #[ic_cdk::update]
-fn create_aio_index_from_json(json_str: String) -> Result<(), String> {
-    let caller_id = caller().to_string();
-    ic_cdk::println!("CALL[create_aio_index_from_json] Input: caller_id={}", caller_id);
+fn create_aio_index_from_json(name:String,json_str: String) -> Result<(), String> {
+    ic_cdk::println!("CALL[create_aio_index_from_json] Input: name={}, json_str={}",  name, json_str);
     let manager = AioIndexManager::new();
-    let result = manager.create_from_json(&json_str);
+    let result = manager.create_from_json(&name,&json_str);
     ic_cdk::println!("CALL[create_aio_index_from_json] Output: {:?}", result);
     result
 }

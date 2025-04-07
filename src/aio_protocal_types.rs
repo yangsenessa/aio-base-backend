@@ -70,7 +70,7 @@ pub struct Source {
 /// AioIndex represents an index item in the system
 #[derive(CandidType, Serialize, Deserialize, Clone, Debug)]
 pub struct AioIndex {
-    pub id: String,           // mcp_id
+    pub id: String,           // agent/mcp name
     pub description: String,
     pub author: String,
     pub version: String,
@@ -279,16 +279,14 @@ impl AioIndexManager {
     }
 
     /// Parse JSON and create an AioIndex
-    pub fn create_from_json(&self, json_str: &str) -> Result<(), String> {
+    pub fn create_from_json(&self,name:&str, json_str: &str) -> Result<(), String> {
         let parsed: Value = serde_json::from_str(json_str)
             .map_err(|e| format!("JSON parsing error: {}", e))?;
         
         let obj = parsed.as_object()
             .ok_or_else(|| "Invalid JSON: expected object".to_string())?;
         
-        let mcp_id = obj.get("mcp_id")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| "Missing or invalid mcp_id".to_string())?;
+        let mcp_id = name.to_string();
         
         let description = obj.get("description")
             .and_then(|v| v.as_str())

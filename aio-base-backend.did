@@ -89,6 +89,43 @@ type WorkItem = record {
   tags: vec text;
   metadata: opt text;
 };
+type SchemaProperty = record {
+  property_type: text;
+  description: opt text;
+  default: opt text;
+  enum_values: opt vec text;
+};
+
+type InputSchema = record {
+  schema_type: text;
+  properties: vec record { text; SchemaProperty };
+};
+
+type Method = record {
+  name: text;
+  description: text;
+  required_params: opt vec text;
+  input_schema: opt InputSchema;
+};
+
+type Source = record {
+  author: text;
+  version: text;
+  github: text;
+};
+
+type AioIndex = record {
+  id: text;
+  description: text;
+  author: text;
+  version: text;
+  github: text;
+  transport: vec text;
+  methods: vec Method;
+  source: Source;
+  keywords: vec text;
+  scenarios: vec text;
+};
 
 service : {
   // Existing service
@@ -121,4 +158,15 @@ service : {
   "get_user_traces_paginated": (nat64, nat64) -> (vec TraceItem) query;
   "get_traces_paginated": (nat64, nat64) -> (vec TraceItem) query;
   "add_trace": (TraceItem) -> (variant { Ok: nat64; Err: text });
+
+  // AIO Protocol Index API
+  "create_aio_index_from_json": (text, text) -> (variant { Ok; Err: text });
+  "get_aio_index": (text) -> (opt AioIndex) query;
+  "get_all_aio_indices": () -> (vec AioIndex) query;
+  "get_aio_indices_paginated": (nat64, nat64) -> (vec AioIndex) query;
+  "search_aio_indices_by_keyword": (text) -> (vec AioIndex) query;
+  "update_aio_index": (text, text) -> (variant { Ok; Err: text });
+  "delete_aio_index": (text) -> (variant { Ok; Err: text });
+  "export_aio_index_to_json": (text) -> (variant { Ok: text; Err: text }) query;
+  "get_aio_indices_count": () -> (nat64) query;
 }
