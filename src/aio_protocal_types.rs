@@ -152,7 +152,9 @@ impl AioIndexManager {
             if indices.contains_key(&id) {
                 return Err(format!("Index with ID {} already exists", id));
             }
-            
+            // Log the index being created
+            ic_cdk::println!("Creating new AioIndex: id={}, description={}, keywords={:?}", 
+                id, index.description, index.keywords);
             indices.insert(id.clone(), index.clone());
             
             // Add to keyword indices

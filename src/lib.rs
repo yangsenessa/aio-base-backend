@@ -342,7 +342,7 @@ fn export_aio_index_to_json(id: String) -> Result<String, String> {
             // Serialize to JSON
             match serde_json::to_string(&index) {
                 Ok(json) => {
-                    ic_cdk::println!("CALL[export_aio_index_to_json] Output: Success (JSON string)");
+                    ic_cdk::println!("CALL[export_aio_index_to_json] Output: Success: {}", json);
                     Ok(json)
                 },
                 Err(e) => {
