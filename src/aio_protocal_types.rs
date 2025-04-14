@@ -1,13 +1,13 @@
 use candid::{CandidType, Decode, Encode};
 use ic_stable_structures::storable::Bound;
-use ic_stable_structures::{DefaultMemoryImpl, StableBTreeMap, StableVec};
+use ic_stable_structures::{DefaultMemoryImpl, StableBTreeMap};
 use ic_stable_structures::memory_manager::{MemoryId, MemoryManager, VirtualMemory};
 use ic_stable_structures::Storable;
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::HashMap;
-use serde_json::{Value, json};
+use serde_json::Value;
 
 type Memory = VirtualMemory<DefaultMemoryImpl>;
 
@@ -27,14 +27,6 @@ impl Storable for StringVec {
     const BOUND: Bound = Bound::Bounded { max_size: 1024 * 64, is_fixed_size: false };
 }
 
-/// Method parameter schema definition
-#[derive(CandidType, Serialize, Deserialize, Clone, Debug)]
-pub struct InputSchema {
-    #[serde(rename = "type")]
-    pub schema_type: String,
-    pub properties: HashMap<String, SchemaProperty>,
-}
-
 /// Property in schema
 #[derive(CandidType, Serialize, Deserialize, Clone, Debug)]
 pub struct SchemaProperty {
@@ -46,6 +38,22 @@ pub struct SchemaProperty {
     pub default: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub enum_values: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub items: Option<Box<SchemaProperty>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub properties: Option<HashMap<String, Box<SchemaProperty>>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub required: Option<Vec<String>>,
+}
+
+/// Method parameter schema definition
+#[derive(CandidType, Serialize, Deserialize, Clone, Debug)]
+pub struct InputSchema {
+    #[serde(rename = "type")]
+    pub schema_type: String,
+    pub properties: HashMap<String, Box<SchemaProperty>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub required: Option<Vec<String>>,
 }
 
 /// Method definition
@@ -72,9 +80,6 @@ pub struct Source {
 pub struct AioIndex {
     pub id: String,           // agent/mcp name
     pub description: String,
-    pub author: String,
-    pub version: String,
-    pub github: String,
     pub transport: Vec<String>,
     pub methods: Vec<Method>,
     pub source: Source,
@@ -87,9 +92,6 @@ impl Default for AioIndex {
         Self {
             id: String::new(),
             description: String::new(),
-            author: String::new(),
-            version: String::new(),
-            github: String::new(),
             transport: Vec::new(),
             methods: Vec::new(),
             source: Source {
@@ -280,8 +282,63 @@ impl AioIndexManager {
         })
     }
 
-    /// Parse JSON and create an AioIndex
-    pub fn create_from_json(&self,name:&str, json_str: &str) -> Result<(), String> {
+    /// Helper function to recursively parse a SchemaProperty from JSON
+    fn parse_schema_property(value: &Value) -> Option<Box<SchemaProperty>> {
+        let obj = value.as_object()?;
+        
+        let prop_type = obj.get("type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("string").to_string();
+        
+        let description = obj.get("description")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        
+        let default = obj.get("default")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        
+        let enum_values = obj.get("enum")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|item| item.as_str().map(|s| s.to_string()))
+                    .collect::<Vec<String>>()
+            });
+        
+        let items = obj.get("items")
+            .and_then(|v| Self::parse_schema_property(v));
+        
+        let properties = obj.get("properties")
+            .and_then(|v| v.as_object())
+            .map(|props| {
+                props.iter()
+                    .filter_map(|(k, v)| {
+                        Some((k.clone(), Self::parse_schema_property(v)?))
+                    })
+                    .collect::<HashMap<String, Box<SchemaProperty>>>()
+            });
+        
+        let required = obj.get("required")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|item| item.as_str().map(|s| s.to_string()))
+                    .collect::<Vec<String>>()
+            });
+        
+        Some(Box::new(SchemaProperty {
+            property_type: prop_type,
+            description,
+            default,
+            enum_values,
+            items,
+            properties,
+            required,
+        }))
+    }
+
+    pub fn create_from_json(&self, name: &str, json_str: &str) -> Result<(), String> {
         let parsed: Value = serde_json::from_str(json_str)
             .map_err(|e| format!("JSON parsing error: {}", e))?;
         
@@ -291,18 +348,6 @@ impl AioIndexManager {
         let mcp_id = name.to_string();
         
         let description = obj.get("description")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-        
-        let author = obj.get("author")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-        
-        let version = obj.get("version")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-        
-        let github = obj.get("github")
             .and_then(|v| v.as_str())
             .unwrap_or("");
         
@@ -330,7 +375,7 @@ impl AioIndexManager {
                         .and_then(|v| v.as_str())
                         .unwrap_or("").to_string();
                     
-                    let required_params = method_obj.get("required_params")
+                    let required_params = method_obj.get("parameters")
                         .and_then(|v| v.as_array())
                         .map(|params| {
                             params.iter()
@@ -348,40 +393,26 @@ impl AioIndexManager {
                             let properties = schema.get("properties")
                                 .and_then(|v| v.as_object())
                                 .map(|props| {
-                                    props.iter().filter_map(|(key, value)| {
-                                        let prop_obj = value.as_object()?;
-                                        
-                                        let prop_type = prop_obj.get("type")
-                                            .and_then(|v| v.as_str())
-                                            .unwrap_or("string").to_string();
-                                        
-                                        let description = prop_obj.get("description")
-                                            .and_then(|v| v.as_str())
-                                            .map(|s| s.to_string());
-                                        
-                                        let default = prop_obj.get("default").map(|v| v.to_string());
-                                        
-                                        let enum_values = prop_obj.get("enum")
-                                            .and_then(|v| v.as_array())
-                                            .map(|arr| {
-                                                arr.iter()
-                                                    .filter_map(|item| item.as_str().map(|s| s.to_string()))
-                                                    .collect::<Vec<String>>()
-                                            });
-                                        
-                                        Some((key.clone(), SchemaProperty {
-                                            property_type: prop_type,
-                                            description,
-                                            default,
-                                            enum_values,
-                                        }))
-                                    }).collect::<HashMap<String, SchemaProperty>>()
+                                    props.iter()
+                                        .filter_map(|(k, v)| {
+                                            Some((k.clone(), Self::parse_schema_property(v)?))
+                                        })
+                                        .collect::<HashMap<String, Box<SchemaProperty>>>()
                                 })
                                 .unwrap_or_else(HashMap::new);
+                            
+                            let required = schema.get("required")
+                                .and_then(|v| v.as_array())
+                                .map(|arr| {
+                                    arr.iter()
+                                        .filter_map(|item| item.as_str().map(|s| s.to_string()))
+                                        .collect::<Vec<String>>()
+                                });
                             
                             InputSchema {
                                 schema_type,
                                 properties,
+                                required,
                             }
                         });
                     
@@ -400,9 +431,18 @@ impl AioIndexManager {
             .and_then(|v| v.as_object())
             .map(|src| {
                 Source {
-                    author: src.get("author").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                    version: src.get("version").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                    github: src.get("github").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                    author: src.get("author")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    version: src.get("version")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    github: src.get("github")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
                 }
             })
             .unwrap_or_else(|| Source {
@@ -412,7 +452,7 @@ impl AioIndexManager {
             });
         
         // Parse keywords
-        let keywords = obj.get("keyword")
+        let keywords = obj.get("functional_keywords")
             .and_then(|v| v.as_array())
             .map(|arr| {
                 arr.iter()
@@ -422,7 +462,7 @@ impl AioIndexManager {
             .unwrap_or_else(Vec::new);
         
         // Parse scenarios
-        let scenarios = obj.get("scenario")
+        let scenarios = obj.get("scenario_phrases")
             .and_then(|v| v.as_array())
             .map(|arr| {
                 arr.iter()
@@ -435,9 +475,6 @@ impl AioIndexManager {
         let aio_index = AioIndex {
             id: mcp_id.to_string(),
             description: description.to_string(),
-            author: author.to_string(),
-            version: version.to_string(),
-            github: github.to_string(),
             transport,
             methods,
             source,
@@ -508,8 +545,8 @@ impl AioIndexManager {
                 // Check description
                 let desc_match = index.description.to_lowercase().contains(&query_lower);
                 
-                // Check author
-                let author_match = index.author.to_lowercase().contains(&query_lower);
+                // Check source author
+                let author_match = index.source.author.to_lowercase().contains(&query_lower);
                 
                 // Check methods
                 let methods_match = index.methods.iter().any(|method| {
@@ -558,7 +595,100 @@ mod tests {
         assert!(result.is_some());
         let index = result.unwrap();
         assert_eq!(index.id, "1743948342885");
-        assert_eq!(index.description, "此服务是提供memory相关的mcp服务");
+        assert_eq!(index.description, "This service provides MCP services related to memory");
         assert_eq!(index.keywords.len(), 2);
+    }
+
+    #[test]
+    fn test_create_from_json() {
+        let manager = AioIndexManager::new();
+        let json_str = r#"
+        {
+            "description": "Test Service",
+            "author": "Test Author",
+            "version": "1.0.0",
+            "github": "https://github.com/test",
+            "transport": ["http", "https"],
+            "methods": [
+                {
+                    "name": "test_method",
+                    "description": "Test Method",
+                    "parameters": ["param1", "param2"],
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "nested": {
+                                "type": "object",
+                                "properties": {
+                                    "deep": {
+                                        "type": "string",
+                                        "description": "Deeply nested property"
+                                    }
+                                }
+                            },
+                            "array": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "name": {
+                                            "type": "string"
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        "required": ["nested"]
+                    }
+                }
+            ],
+            "source": {
+                "author": "Source Author",
+                "version": "1.0.0",
+                "github": "https://github.com/source"
+            },
+            "functional_keywords": ["test", "keyword"],
+            "scenario_phrases": ["test scenario"]
+        }"#;
+
+        let result = manager.create_from_json("test_id", json_str);
+        assert!(result.is_ok());
+
+        let index = manager.read("test_id").unwrap();
+        assert_eq!(index.id, "test_id");
+        assert_eq!(index.description, "Test Service");
+        assert_eq!(index.author, "Test Author");
+        assert_eq!(index.version, "1.0.0");
+        assert_eq!(index.github, "https://github.com/test");
+        assert_eq!(index.transport, vec!["http", "https"]);
+        assert_eq!(index.keywords, vec!["test", "keyword"]);
+        assert_eq!(index.scenarios, vec!["test scenario"]);
+
+        // Check methods
+        assert_eq!(index.methods.len(), 1);
+        let method = &index.methods[0];
+        assert_eq!(method.name, "test_method");
+        assert_eq!(method.description, "Test Method");
+        assert_eq!(method.required_params, Some(vec!["param1".to_string(), "param2".to_string()]));
+
+        // Check input schema
+        let input_schema = method.input_schema.as_ref().unwrap();
+        assert_eq!(input_schema.schema_type, "object");
+        assert!(input_schema.required.as_ref().unwrap().contains(&"nested".to_string()));
+
+        // Check nested properties
+        let nested_prop = input_schema.properties.get("nested").unwrap();
+        assert_eq!(nested_prop.property_type, "object");
+        let deep_prop = nested_prop.properties.as_ref().unwrap().get("deep").unwrap();
+        assert_eq!(deep_prop.property_type, "string");
+        assert_eq!(deep_prop.description.as_ref().unwrap(), "Deeply nested property");
+
+        // Check array properties
+        let array_prop = input_schema.properties.get("array").unwrap();
+        assert_eq!(array_prop.property_type, "array");
+        let items = array_prop.items.as_ref().unwrap();
+        assert_eq!(items.property_type, "object");
+        let name_prop = items.properties.as_ref().unwrap().get("name").unwrap();
+        assert_eq!(name_prop.property_type, "string");
     }
 }
