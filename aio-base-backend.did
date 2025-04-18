@@ -127,6 +127,15 @@ type AioIndex = record {
   scenarios: vec text;
 };
 
+type InvertedIndexItem = record {
+    keyword: text;
+    keyword_group: text;
+    mcp_name: text;
+    source_field: text;
+    confidence: float32;
+    standard_match: text;
+};
+
 service : {
   // Existing service
   "greet": (text) -> (text) query;
@@ -169,4 +178,28 @@ service : {
   "delete_aio_index": (text) -> (variant { Ok; Err: text });
   "export_aio_index_to_json": (text) -> (variant { Ok: text; Err: text }) query;
   "get_aio_indices_count": () -> (nat64) query;
+
+  // Store inverted index
+  store_inverted_index: (text,text) -> (variant { Ok; Err: text });
+
+  // Get all inverted index items
+  get_all_inverted_index_items: () -> (text) query;
+
+  // Find index items by keyword
+  find_inverted_index_by_keyword: (text) -> (text) query;
+
+  // Find index items by keyword group
+  find_inverted_index_by_group: (text) -> (text) query;
+
+  // Find index items by MCP name
+  find_inverted_index_by_mcp: (text) -> (text) query;
+
+  // Find index items by confidence threshold
+  find_inverted_index_by_confidence: (float32) -> (text) query;
+
+  // Find index items by multiple keywords with confidence threshold
+  find_inverted_index_by_keywords: (vec text, float32) -> (text) query;
+
+  // Delete all index items for a specific MCP
+  delete_inverted_index_by_mcp: (text) -> (variant { Ok; Err: text });
 }

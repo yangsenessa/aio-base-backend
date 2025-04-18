@@ -37,11 +37,11 @@ pub struct UserMcpKey {
 
 impl ic_stable_structures::Storable for UserMcpKey {
     fn to_bytes(&self) -> std::borrow::Cow<[u8]> {
-        Cow::Owned(Encode!(&self.owner, &self.item_id).unwrap())
+        Cow::Owned(Encode!(&self.owner, &self.item_id).expect("Failed to encode UserMcpKey"))
     }
 
     fn from_bytes(bytes: std::borrow::Cow<[u8]>) -> Self {
-        let (owner, item_id) = Decode!(bytes.as_ref(), String, u64).unwrap();
+        let (owner, item_id) = Decode!(bytes.as_ref(), String, u64).expect("Failed to decode UserMcpKey");
         Self { owner, item_id }
     }
 
@@ -50,15 +50,14 @@ impl ic_stable_structures::Storable for UserMcpKey {
 
 impl ic_stable_structures::Storable for McpItem {
     fn to_bytes(&self) -> std::borrow::Cow<[u8]> {
-        Cow::Owned(Encode!(self).unwrap())
+        Cow::Owned(Encode!(self).expect("Failed to encode McpItem"))
     }
 
     fn from_bytes(bytes: std::borrow::Cow<[u8]>) -> Self {
-        Decode!(bytes.as_ref(), Self).unwrap()
+        Decode!(bytes.as_ref(), Self).expect("Failed to decode McpItem")
     }
 
-    // Define a concrete bound instead of Unbounded
-    const BOUND: Bound = Bound::Bounded { max_size: 2000 * 1024, is_fixed_size: false }; // 100KB should be sufficient
+    const BOUND: Bound = Bound::Bounded { max_size: 20000 * 1024, is_fixed_size: false }; // 100KB should be sufficient
 }
 
 thread_local! {
@@ -68,20 +67,20 @@ thread_local! {
     static MCP_ITEMS: RefCell<StableVec<McpItem, Memory>> = RefCell::new(
         StableVec::init(
             MEMORY_MANAGER.with(|m| m.borrow().get(MemoryId::new(1)))
-        ).unwrap()
+        ).expect("Failed to initialize MCP items storage")
     );
     
     static USER_MCP_INDEX: RefCell<StableBTreeMap<UserMcpKey, (), Memory>> = RefCell::new(
         StableBTreeMap::init(
-            MEMORY_MANAGER.with(|m| m.borrow().get(MemoryId::new(5)))
+            MEMORY_MANAGER.with(|m| m.borrow().get(MemoryId::new(7)))
         )
     );
 }
 
 /// Add a new MCP item to the storage
-pub fn add_mcp_item( mcp: McpItem, caller_id: String) -> Result<u64, String> {
+pub fn add_mcp_item(mcp: McpItem, caller_id: String) -> Result<u64, String> {
     MCP_ITEMS.with(|items| {
-        let items = items.borrow_mut(); // Removed mut from items
+        let items = items.borrow_mut();
         let total_items = items.len();
         
         // Check if an MCP with the same name already exists
@@ -91,13 +90,15 @@ pub fn add_mcp_item( mcp: McpItem, caller_id: String) -> Result<u64, String> {
                 return Err(format!("MCP with name '{}' already exists", mcp.name));
             }
         }
-        
+        ic_cdk::println!("Adding new MCP item: name={}, owner={}", mcp.name, caller_id);
         // If name is unique, add the new MCP
         let index = items.len();
         let mut mcp_item = mcp.clone();
         mcp_item.id = index;
+        mcp_item.owner = caller_id; // 使用传入的 caller_id 作为 owner
         items.push(&mcp_item).unwrap();
-        
+        ic_cdk::println!("MCP item added: index={}, name={}", index, mcp_item.name);
+        ic_cdk::println!("MCP_INDEX item will be added: index={}, owner_name={}", index, mcp_item.owner);
         // Create owner index entry
         USER_MCP_INDEX.with(|user_index| {
             let mut user_index = user_index.borrow_mut();

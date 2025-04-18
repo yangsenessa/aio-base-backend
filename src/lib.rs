@@ -1,16 +1,108 @@
 mod agent_asset_types;
 mod mcp_asset_types;
 mod aio_workledger_types;
-// Import the AioIndexManager
+mod aio_invert_index_types;
 mod aio_protocal_types;
 
 use agent_asset_types::AgentItem;
-use candid::types::principal;
 use mcp_asset_types::McpItem;
 use aio_workledger_types::TraceItem;
 use ic_cdk::caller;
 use aio_protocal_types::AioIndexManager;
 use serde_json;
+
+// Store inverted index
+#[ic_cdk::update]
+fn store_inverted_index(mcp_name: String, json_str: String) -> Result<(), String> {
+    ic_cdk::println!("CALL[store_inverted_index] Input: {}", json_str);
+    ic_cdk::println!("MCP Name: {}", mcp_name);
+    aio_invert_index_types::validate_json_str(&json_str)
+        .map_err(|e| format!("Validation failed: {}", e))?;
+    // Parse JSON string to Value
+    let mut json_value: serde_json::Value = serde_json::from_str(&json_str)
+        .map_err(|e| format!("Invalid JSON: {}", e))?;
+
+    // If array, iterate each object and update mcp_name field
+    if let serde_json::Value::Array(ref mut array) = json_value {
+        for item in array {
+            if let serde_json::Value::Object(ref mut map) = item {
+                if let Some(value) = map.get_mut("mcp_name") {
+                    *value = serde_json::Value::String(mcp_name.clone());
+                }
+            }
+        }
+    }
+    
+    // update json_str
+    let json_str = serde_json::to_string(&json_value)
+        .map_err(|e| format!("Failed to serialize JSON: {}", e))?;
+    
+    
+    // store inverted index
+    let result = aio_invert_index_types::store_inverted_index(json_str);
+    ic_cdk::println!("CALL[store_inverted_index] Output: {:?}", result);
+    result
+}
+
+// Get all inverted index items
+#[ic_cdk::query]
+fn get_all_inverted_index_items() -> String {
+    ic_cdk::println!("CALL[get_all_inverted_index_items] Input: none");
+    let result = aio_invert_index_types::get_all_inverted_index_items();
+    ic_cdk::println!("CALL[get_all_inverted_index_items] Output: {} items", result.len());
+    result
+}
+
+// Find index items by keyword
+#[ic_cdk::query]
+fn find_inverted_index_by_keyword(keyword: String) -> String {
+    ic_cdk::println!("CALL[find_inverted_index_by_keyword] Input: keyword={}", keyword);
+    let result = aio_invert_index_types::find_inverted_index_by_keyword(keyword);
+    ic_cdk::println!("CALL[find_inverted_index_by_keyword] Output: {} items", result.len());
+    result
+}
+
+// Find index items by keyword group
+#[ic_cdk::query]
+fn find_inverted_index_by_group(group: String) -> String {
+    ic_cdk::println!("CALL[find_inverted_index_by_group] Input: group={}", group);
+    let result = aio_invert_index_types::find_inverted_index_by_group(group);
+    ic_cdk::println!("CALL[find_inverted_index_by_group] Output: {} items", result.len());
+    result
+}
+
+// Find index items by MCP name
+#[ic_cdk::query]
+fn find_inverted_index_by_mcp(mcp_name: String) -> String {
+    ic_cdk::println!("CALL[find_inverted_index_by_mcp] Input: mcp_name={}", mcp_name);
+    let result = aio_invert_index_types::find_inverted_index_by_mcp(mcp_name);
+    ic_cdk::println!("CALL[find_inverted_index_by_mcp] Output: {} items", result.len());
+    result
+}
+
+// Find index items by confidence threshold
+#[ic_cdk::query]
+fn find_inverted_index_by_confidence(min_confidence: f32) -> String {
+    ic_cdk::println!("CALL[find_inverted_index_by_confidence] Input: min_confidence={}", min_confidence);
+    let result = aio_invert_index_types::find_inverted_index_by_confidence(min_confidence);
+    ic_cdk::println!("CALL[find_inverted_index_by_confidence] Output: {} items", result.len());
+    result
+}
+
+// Find index items by multiple keywords with confidence threshold
+#[ic_cdk::query]
+fn find_inverted_index_by_keywords(keywords: Vec<String>, min_confidence: f32) -> String {
+    ic_cdk::println!("CALL[find_inverted_index_by_keywords] Input: keywords={:?}, min_confidence={}", keywords, min_confidence);
+    let result = aio_invert_index_types::find_inverted_index_by_keywords(keywords, min_confidence);
+    ic_cdk::println!("CALL[find_inverted_index_by_keywords] Output: {} items", result.len());
+    result
+}
+
+// Delete all index items for a specific MCP
+#[ic_cdk::update]
+fn delete_inverted_index_by_mcp(mcp_name: String) -> Result<(), String> {
+    aio_invert_index_types::delete_inverted_index_by_mcp(mcp_name)
+}
 
 #[ic_cdk::query]
 fn greet(name: String) -> String {
