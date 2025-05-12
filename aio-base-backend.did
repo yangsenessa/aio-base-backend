@@ -185,6 +185,9 @@ service : {
   // Get all inverted index items
   get_all_inverted_index_items: () -> (text) query;
 
+  // Get all keywords
+  get_all_keywords: () -> (text) query;
+
   // Find index items by keyword
   find_inverted_index_by_keyword: (text) -> (text) query;
 
@@ -202,4 +205,5 @@ service : {
 
   // Delete all index items for a specific MCP
   delete_inverted_index_by_mcp: (text) -> (variant { Ok; Err: text });
+  
 }
