@@ -70,6 +70,12 @@ pub fn delete_inverted_index_by_mcp(mcp_name: String) -> Result<(), String> {
     })
 }
 
+pub fn get_all_keywords() -> String {
+    INVERTED_INDEX_STORE.with(|store| {
+        store.borrow().get_all_keywords()
+    })
+}
+
 // 添加验证 JSON 字符串的公共方法
 pub fn validate_json_str(json_str: &str) -> Result<(), String> {
     let items: Vec<InvertedIndexItem> = serde_json::from_str(json_str)
@@ -124,6 +130,16 @@ impl InvertedIndexStore {
         }
     }
 
+    // Get all unique keywords
+    pub fn get_all_keywords(&self) -> String {
+        let keywords: Vec<String> = self.keyword_to_docs.keys().cloned().collect();
+        ic_cdk::println!("Retrieved {} unique keywords", keywords.len());
+        serde_json::to_string(&keywords).unwrap_or_else(|e| {
+            ic_cdk::println!("Error serializing keywords: {}", e);
+            "[]".to_string()
+        })
+    }
+
     // Store inverted index from JSON string
     pub fn store_from_json(&mut self, json_str: &str) -> Result<(), String> {
         // 添加日志记录
@@ -164,6 +180,7 @@ impl InvertedIndexStore {
             "[]".to_string()
         })
     }
+    
 
     // Find index items by keyword
     pub fn find_by_keyword(&self, keyword: &str) -> String {
