@@ -89,6 +89,7 @@ pub struct InvertedIndexItem {
     pub keyword: String,
     pub keyword_group: String,
     pub mcp_name: String,
+    pub method_name: String,
     pub source_field: String,
     pub confidence: f32,
     pub standard_match: String,
