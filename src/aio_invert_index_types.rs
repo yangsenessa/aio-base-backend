@@ -16,7 +16,7 @@ thread_local! {
 
 // Define inverted index store
 thread_local! {
-    static INVERTED_INDEX_STORE: RefCell<InvertedIndexStore> = RefCell::new(
+    pub static INVERTED_INDEX_STORE: RefCell<InvertedIndexStore> = RefCell::new(
         InvertedIndexStore::new(MEMORY_MANAGER.with(|m| m.borrow().get(MemoryId::new(0))))
     );
 }
@@ -300,6 +300,63 @@ impl InvertedIndexStore {
         }
 
         Ok(())
+    }
+
+    // Find the most suitable index item by keywords with strategy
+    pub fn find_by_keywords_strategy(&self, keywords: &[String]) -> Option<InvertedIndexItem> {
+        let mut results: HashMap<String, (InvertedIndexItem, usize)> = HashMap::new();
+
+        // Step 1: Collect all matching items
+        for keyword in keywords {
+            let items = self.find_by_keyword(keyword);
+            let items: Vec<InvertedIndexItem> = serde_json::from_str(&items).unwrap_or_default();
+            for item in items {
+                // Skip items with method_name 'help'
+                if item.method_name == "help" {
+                    continue;
+                }
+                // Skip items with confidence < 0.9
+                if item.confidence < 0.9 {
+                    continue;
+                }
+                let entry = results.entry(item.mcp_name.clone())
+                    .or_insert_with(|| (item.clone(), 0));
+                entry.1 += 1; // Increment match count
+            }
+        }
+
+        // Return None if no matches found
+        if results.is_empty() {
+            return None;
+        }
+
+        // Convert to Vec and sort
+        let mut result_vec: Vec<(InvertedIndexItem, usize)> = results
+            .into_iter()
+            .map(|(_, (item, count))| (item, count))
+            .collect();
+
+        // Sort by standard_match == 'true', then by match count and confidence
+        result_vec.sort_by(|a, b| {
+            // First check standard_match
+            let a_is_true = a.0.standard_match == "true";
+            let b_is_true = b.0.standard_match == "true";
+            if a_is_true != b_is_true {
+                return b_is_true.cmp(&a_is_true);
+            }
+            
+            // Then sort by match count
+            let count_cmp = b.1.cmp(&a.1);
+            if count_cmp != std::cmp::Ordering::Equal {
+                return count_cmp;
+            }
+            
+            // Finally sort by confidence
+            b.0.confidence.partial_cmp(&a.0.confidence).unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        // Return the first (most matching) item
+        result_vec.first().map(|(item, _)| item.clone())
     }
 }
 

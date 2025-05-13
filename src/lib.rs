@@ -470,3 +470,24 @@ fn get_aio_indices_count() -> usize {
     result
 }
 
+// Find the most suitable index item by keywords with strategy
+#[ic_cdk::query]
+fn revert_Index_find_by_keywords_strategy(keywords: Vec<String>) -> String {
+    ic_cdk::println!("CALL[revert_Index_find_by_keywords_strategy] Input: keywords={:?}", keywords);
+    let result = aio_invert_index_types::INVERTED_INDEX_STORE.with(|store| {
+        store.borrow().find_by_keywords_strategy(&keywords)
+    });
+    
+    // Convert result to JSON string
+    let json_result = match result {
+        Some(item) => serde_json::to_string(&item).unwrap_or_else(|e| {
+            ic_cdk::println!("Error serializing result: {}", e);
+            "{}".to_string()
+        }),
+        None => "{}".to_string()
+    };
+    
+    ic_cdk::println!("CALL[revert_Index_find_by_keywords_strategy] Output: {}", json_result);
+    json_result
+}
+

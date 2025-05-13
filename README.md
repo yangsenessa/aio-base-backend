@@ -71,6 +71,50 @@ get_aio_index: (text) -> (opt AioIndex) query
 search_aio_indices_by_keyword: (text) -> (vec AioIndex) query
 ```
 
+### Inverted Index Strategy Search
+The `revert_Index_find_by_keywords_strategy` function implements an advanced search algorithm for finding the most relevant inverted index item based on multiple keywords. Here's how it works:
+
+#### Input
+- An array of keywords to search for
+
+#### Algorithm Steps
+1. **Initial Filtering**
+   - Excludes items where `method_name` equals 'help'
+   - Filters out items with `confidence` less than 0.9
+   - Collects all matching items for each keyword
+
+2. **Scoring System**
+   - Counts how many keywords match each item
+   - Maintains a mapping of MCP names to their matching items and scores
+
+3. **Prioritization Rules**
+   The algorithm sorts results using the following priority order:
+   1. `standard_match` equals 'true' (highest priority)
+   2. Number of keyword matches (secondary priority)
+   3. Confidence score (tertiary priority)
+
+4. **Result Selection**
+   - Returns the single most relevant item as a JSON string
+   - Returns an empty JSON object `{}` if no matches are found
+
+#### Example Usage
+```candid
+revert_Index_find_by_keywords_strategy: (vec text) -> (text) query
+```
+
+#### Return Format
+```json
+{
+    "keyword": "string",
+    "keyword_group": "string",
+    "mcp_name": "string",
+    "method_name": "string",
+    "source_field": "string",
+    "confidence": float,
+    "standard_match": "string"
+}
+```
+
 ## Getting Started
 
 ### Prerequisites
