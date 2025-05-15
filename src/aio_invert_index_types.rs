@@ -190,6 +190,7 @@ impl InvertedIndexStore {
             .map(|(_, v)| v.clone())
             .collect::<Vec<_>>();
         ic_cdk::println!("Found {} items for keyword: {}", items.len(), keyword);
+        ic_cdk::println!("Found Items: {:?}", items);
         serde_json::to_string(&items).unwrap_or_else(|e| {
             ic_cdk::println!("Error serializing items: {}", e);
             "[]".to_string()

@@ -480,11 +480,18 @@ fn revert_Index_find_by_keywords_strategy(keywords: Vec<String>) -> String {
     
     // Convert result to JSON string
     let json_result = match result {
-        Some(item) => serde_json::to_string(&item).unwrap_or_else(|e| {
-            ic_cdk::println!("Error serializing result: {}", e);
+        Some(item) => {
+            let json = serde_json::to_string(&item).unwrap_or_else(|e| {
+                ic_cdk::println!("Error serializing result: {}", e);
+                "{}".to_string()
+            });
+            ic_cdk::println!("Found matching item: {}", json);
+            json
+        },
+        None => {
+            ic_cdk::println!("No matching items found");
             "{}".to_string()
-        }),
-        None => "{}".to_string()
+        }
     };
     
     ic_cdk::println!("CALL[revert_Index_find_by_keywords_strategy] Output: {}", json_result);
