@@ -1,0 +1,29 @@
+{
+  "canisters": {
+    "aio-base-backend": {
+      "candid": "./src/aio-base-backend/aio-base-backend.did",
+      "package": "aio-base-backend",
+      "specified_id": "bd3sg-teaaa-aaaaa-qaaba-cai",
+      "type": "rust"
+    },
+    "aio-base-frontend": {
+      "dependencies": [
+        "aio-base-backend"
+      ],
+      "source": [
+        "./src/aio-base-frontend/dist"
+      ],
+      "type": "assets",
+      "specified_id": "be2us-64aaa-aaaaa-qaabq-cai",
+      "workspace": "./src/aio-base-frontend"
+    }
+  },
+  "defaults": {
+    "build": {
+      "args": "",
+      "packtool": ""
+    }
+  },
+  "output_env_file": ".env",
+  "version": 1
+}
