@@ -307,22 +307,55 @@ impl InvertedIndexStore {
     pub fn find_by_keywords_strategy(&self, keywords: &[String]) -> Option<InvertedIndexItem> {
         let mut results: HashMap<String, (InvertedIndexItem, usize)> = HashMap::new();
 
-        // Step 1: Collect all matching items
+        // Step 1: Split input keywords into word sequences
+        let input_word_sequences: Vec<Vec<String>> = keywords.iter()
+            .map(|k| k.split(|c| c == '-' || c == '_')
+                .map(|s| s.to_lowercase())
+                .collect())
+            .collect();
+
+        // Step 2: Collect all matching items
         for keyword in keywords {
             let items = self.find_by_keyword(keyword);
             let items: Vec<InvertedIndexItem> = serde_json::from_str(&items).unwrap_or_default();
+            
             for item in items {
                 // Skip items with method_name 'help'
                 if item.method_name == "help" {
                     continue;
                 }
-                // Skip items with confidence < 0.9
-                if item.confidence < 0.9 {
+                // Skip items with confidence < 0.7
+                if item.confidence < 0.7 {
                     continue;
                 }
-                let entry = results.entry(item.mcp_name.clone())
-                    .or_insert_with(|| (item.clone(), 0));
-                entry.1 += 1; // Increment match count
+
+                // Split stored keyword into word sequence
+                let stored_word_sequence: Vec<String> = item.keyword
+                    .split(|c| c == '-' || c == '_')
+                    .map(|s| s.to_lowercase())
+                    .collect();
+
+                // Calculate match score for this item
+                let mut match_score = 0;
+                for input_sequence in &input_word_sequences {
+                    let mut sequence_match_count = 0;
+                    for input_word in input_sequence {
+                        if stored_word_sequence.contains(input_word) {
+                            sequence_match_count += 1;
+                        }
+                    }
+                    
+                    // Check if more than half of the words match
+                    if sequence_match_count > input_sequence.len() / 2 {
+                        match_score += 1;
+                    }
+                }
+
+                if match_score > 0 {
+                    let entry = results.entry(item.mcp_name.clone())
+                        .or_insert_with(|| (item.clone(), 0));
+                    entry.1 += match_score; // Add match score instead of just incrementing
+                }
             }
         }
 
@@ -337,7 +370,7 @@ impl InvertedIndexStore {
             .map(|(_, (item, count))| (item, count))
             .collect();
 
-        // Sort by standard_match == 'true', then by match count and confidence
+        // Sort by standard_match == 'true', then by match score and confidence
         result_vec.sort_by(|a, b| {
             // First check standard_match
             let a_is_true = a.0.standard_match == "true";
@@ -346,10 +379,10 @@ impl InvertedIndexStore {
                 return b_is_true.cmp(&a_is_true);
             }
             
-            // Then sort by match count
-            let count_cmp = b.1.cmp(&a.1);
-            if count_cmp != std::cmp::Ordering::Equal {
-                return count_cmp;
+            // Then sort by match score
+            let score_cmp = b.1.cmp(&a.1);
+            if score_cmp != std::cmp::Ordering::Equal {
+                return score_cmp;
             }
             
             // Finally sort by confidence

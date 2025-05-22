@@ -58,7 +58,7 @@ fn get_all_inverted_index_items() -> String {
 fn get_all_keywords() -> String {
     ic_cdk::println!("CALL[get_all_keywords] Input: none");
     let result = aio_invert_index_types::get_all_keywords();
-    ic_cdk::println!("CALL[get_all_keywords] Output: {} items", result.len());
+    ic_cdk::println!("CALL[get_all_keywords] Output: {} ", result);
     result
 }
 
