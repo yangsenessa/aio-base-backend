@@ -261,6 +261,27 @@ fn update_mcp_item(index: u64, mut mcp: McpItem) -> Result<(), String> {
     result
 }
 
+#[ic_cdk::update]
+fn delete_mcp_item(name: String) -> Result<(), String> {
+    ic_cdk::println!("CALL[delete_mcp_item] Input: name={}", name);
+    
+    // First delete the MCP item
+    let delete_result = mcp_asset_types::delete_mcp_item(name.clone());
+    
+    // If MCP deletion was successful, also delete the inverted index
+    if delete_result.is_ok() {
+        // Delete the inverted index
+        let index_result = aio_invert_index_types::delete_inverted_index_by_mcp(name.clone());
+        if index_result.is_err() {
+            ic_cdk::println!("Warning: Failed to delete inverted index for MCP: {}", name);
+            // We don't return error here as the MCP was successfully deleted
+        }
+    }
+    
+    ic_cdk::println!("CALL[delete_mcp_item] Output: {:?}", delete_result);
+    delete_result
+}
+
 // ==== Work Ledger API - Trace System ====
 
 #[ic_cdk::query]

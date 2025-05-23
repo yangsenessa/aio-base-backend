@@ -118,7 +118,13 @@ pub fn get_mcp_item(index: u64) -> Option<McpItem> {
     MCP_ITEMS.with(|items| {
         let items = items.borrow();
         if index < items.len() {
-            Some(items.get(index).unwrap())
+            let item = items.get(index).unwrap();
+            // Check if it's an empty object
+            if item.name.is_empty() {
+                None
+            } else {
+                Some(item)
+            }
         } else {
             None
         }
@@ -131,7 +137,11 @@ pub fn get_all_mcp_items() -> Vec<McpItem> {
         let items = items.borrow();
         let mut result = Vec::new();
         for i in 0..items.len() {
-            result.push(items.get(i).unwrap());
+            let item = items.get(i).unwrap();
+            // Only add non-empty objects
+            if !item.name.is_empty() {
+                result.push(item);
+            }
         }
         result
     })
@@ -151,7 +161,10 @@ pub fn get_user_mcp_items(owner: String) -> Vec<McpItem> {
         // Get all items in range
         for (key, _) in index.range(start_key..=end_key) {
             if let Some(item) = get_mcp_item(key.item_id) {
-                result.push(item);
+                // Only add non-empty objects
+                if !item.name.is_empty() {
+                    result.push(item);
+                }
             }
         }
     });
@@ -199,7 +212,11 @@ pub fn get_mcp_items_paginated(offset: u64, limit: usize) -> Vec<McpItem> {
         // Collect the items in the range
         let mut result = Vec::new();
         for i in offset..end {
-            result.push(items.get(i).unwrap());
+            let item = items.get(i).unwrap();
+            // Only add non-empty objects
+            if !item.name.is_empty() {
+                result.push(item);
+            }
         }
         
         result
@@ -224,10 +241,68 @@ pub fn get_mcp_item_by_name(name: String) -> Option<McpItem> {
         let items = items.borrow();
         for i in 0..items.len() {
             let item = items.get(i).unwrap();
-            if item.name == name {
+            // Check if it's a non-empty object and name matches
+            if !item.name.is_empty() && item.name == name {
                 return Some(item);
             }
         }
         None
+    })
+}
+
+/// Delete an MCP item by name
+pub fn delete_mcp_item(name: String) -> Result<(), String> {
+    MCP_ITEMS.with(|items| {
+        let mut items = items.borrow_mut();
+        let total_items = items.len();
+        
+        // Find the item by name
+        let mut found_index = None;
+        for i in 0..total_items {
+            let item = items.get(i).unwrap();
+            if item.name == name {
+                found_index = Some(i);
+                break;
+            }
+        }
+        
+        match found_index {
+            Some(index) => {
+                // Remove from USER_MCP_INDEX
+                USER_MCP_INDEX.with(|user_index| {
+                    let mut user_index = user_index.borrow_mut();
+                    let item = items.get(index).unwrap();
+                    let key = UserMcpKey { 
+                        owner: item.owner.clone(), 
+                        item_id: index as u64 
+                    };
+                    user_index.remove(&key);
+                });
+                
+                // Create an empty MCP item to replace the existing one
+                let empty_item = McpItem {
+                    id: index as u64,
+                    name: String::new(),
+                    description: String::new(),
+                    author: String::new(),
+                    owner: String::new(),
+                    git_repo: String::new(),
+                    exec_file: None,
+                    homepage: None,
+                    remote_endpoint: None,
+                    mcp_type: String::new(),
+                    community_body: None,
+                    resources: false,
+                    prompts: false,
+                    tools: false,
+                    sampling: false,
+                };
+                
+                // Replace the item with empty one
+                items.set(index, &empty_item);
+                Ok(())
+            },
+            None => Err(format!("MCP with name '{}' not found", name))
+        }
     })
 }
