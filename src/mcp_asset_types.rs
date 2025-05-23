@@ -80,36 +80,69 @@ thread_local! {
 /// Add a new MCP item to the storage
 pub fn add_mcp_item(mcp: McpItem, caller_id: String) -> Result<u64, String> {
     MCP_ITEMS.with(|items| {
-        let items = items.borrow_mut();
+        let mut items = items.borrow_mut();
         let total_items = items.len();
         
-        // Check if an MCP with the same name already exists
+        // First check for existing active MCP with same name
         for i in 0..total_items {
             let existing = items.get(i).unwrap();
-            if existing.name == mcp.name {
+            if !existing.name.is_empty() && existing.name == mcp.name {
                 return Err(format!("MCP with name '{}' already exists", mcp.name));
             }
         }
-        ic_cdk::println!("Adding new MCP item: name={}, owner={}", mcp.name, caller_id);
-        // If name is unique, add the new MCP
-        let index = items.len();
-        let mut mcp_item = mcp.clone();
-        mcp_item.id = index;
-        mcp_item.owner = caller_id; // 使用传入的 caller_id 作为 owner
-        items.push(&mcp_item).unwrap();
-        ic_cdk::println!("MCP item added: index={}, name={}", index, mcp_item.name);
-        ic_cdk::println!("MCP_INDEX item will be added: index={}, owner_name={}", index, mcp_item.owner);
-        // Create owner index entry
-        USER_MCP_INDEX.with(|user_index| {
-            let mut user_index = user_index.borrow_mut();
-            let key = UserMcpKey { 
-                owner: mcp_item.owner.clone(), 
-                item_id: index 
-            };
-            user_index.insert(key, ());
-        });
         
-        Ok(index)
+        // Then check for deleted MCP with same name (empty name)
+        let mut empty_slot = None;
+        for i in 0..total_items {
+            let existing = items.get(i).unwrap();
+            if existing.name.is_empty() {
+                empty_slot = Some(i);
+                break;
+            }
+        }
+        
+        ic_cdk::println!("Adding new MCP item: name={}, owner={}", mcp.name, caller_id);
+        
+        // If we found an empty slot, use it
+        if let Some(index) = empty_slot {
+            let mut mcp_item = mcp.clone();
+            mcp_item.id = index as u64;
+            mcp_item.owner = caller_id;
+            items.set(index, &mcp_item);
+            ic_cdk::println!("MCP item added to existing slot: index={}, name={}", index, mcp_item.name);
+            
+            // Create owner index entry
+            USER_MCP_INDEX.with(|user_index| {
+                let mut user_index = user_index.borrow_mut();
+                let key = UserMcpKey { 
+                    owner: mcp_item.owner.clone(), 
+                    item_id: index as u64 
+                };
+                user_index.insert(key, ());
+            });
+            
+            Ok(index as u64)
+        } else {
+            // If no empty slot, add new item
+            let index = items.len();
+            let mut mcp_item = mcp.clone();
+            mcp_item.id = index as u64;
+            mcp_item.owner = caller_id;
+            items.push(&mcp_item);
+            ic_cdk::println!("MCP item added to new slot: index={}, name={}", index, mcp_item.name);
+            
+            // Create owner index entry
+            USER_MCP_INDEX.with(|user_index| {
+                let mut user_index = user_index.borrow_mut();
+                let key = UserMcpKey { 
+                    owner: mcp_item.owner.clone(), 
+                    item_id: index as u64 
+                };
+                user_index.insert(key, ());
+            });
+            
+            Ok(index as u64)
+        }
     })
 }
 
@@ -237,15 +270,20 @@ pub fn get_user_mcp_items_paginated(owner: String, offset: u64, limit: usize) ->
 
 /// Get an MCP item by name
 pub fn get_mcp_item_by_name(name: String) -> Option<McpItem> {
+    ic_cdk::println!("[DEBUG] get_mcp_item_by_name called with name: {}", name);
     MCP_ITEMS.with(|items| {
         let items = items.borrow();
+        ic_cdk::println!("[DEBUG] Total items in storage: {}", items.len());
         for i in 0..items.len() {
             let item = items.get(i).unwrap();
+            ic_cdk::println!("[DEBUG] Checking item {}: name='{}', empty={}", i, item.name, item.name.is_empty());
             // Check if it's a non-empty object and name matches
             if !item.name.is_empty() && item.name == name {
+                ic_cdk::println!("[DEBUG] Found matching item at index {}", i);
                 return Some(item);
             }
         }
+        ic_cdk::println!("[DEBUG] No matching item found");
         None
     })
 }

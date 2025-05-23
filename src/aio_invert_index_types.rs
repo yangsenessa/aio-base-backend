@@ -76,7 +76,7 @@ pub fn get_all_keywords() -> String {
     })
 }
 
-// 添加验证 JSON 字符串的公共方法
+// add validate json str
 pub fn validate_json_str(json_str: &str) -> Result<(), String> {
     let items: Vec<InvertedIndexItem> = serde_json::from_str(json_str)
         .map_err(|e| format!("Invalid JSON format: {}", e))?;
@@ -142,13 +142,13 @@ impl InvertedIndexStore {
 
     // Store inverted index from JSON string
     pub fn store_from_json(&mut self, json_str: &str) -> Result<(), String> {
-        // 添加日志记录
+        // add log
         ic_cdk::println!("Parsing JSON string: {}", json_str);
         
         let items: Vec<InvertedIndexItem> = serde_json::from_str(json_str)
             .map_err(|e| format!("Failed to parse JSON: {}", e))?;
 
-        // 验证每个项目的 standard_match 字段
+        // validate each item's standard_match field
         for item in &items {
             if item.standard_match.is_empty() {
                 return Err("standard_match field cannot be empty".to_string());
@@ -157,7 +157,12 @@ impl InvertedIndexStore {
                 item.keyword, item.standard_match);
         }
 
-        for item in items {
+        for mut item in items {
+            // if method_name is help, then add help-for-mcp_name to keyword
+            if item.method_name == "help" {
+                item.keyword = format!("help-for-{}", item.mcp_name);
+            }
+
             let key = format!("{}:{}:{}", item.keyword, item.mcp_name, item.standard_match).into_bytes();
             self.items.insert(key, item.clone());
 

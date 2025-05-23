@@ -160,6 +160,7 @@ service : {
   "get_mcp_item_by_name": (text) -> (opt McpItem) query;
   "add_mcp_item": (McpItem,text) -> (variant { Ok: nat64; Err: text });
   "update_mcp_item": (nat64, McpItem) -> (variant { Ok; Err: text });
+  "delete_mcp_item": (text) -> (variant { Ok; Err: text });
   
   // Work Ledger API - Trace System
   "get_trace": (nat64) -> (opt TraceItem) query;
