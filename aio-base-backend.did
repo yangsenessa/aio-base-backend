@@ -17,6 +17,18 @@ type TraceStatus = variant {
   Fail;
 };
 
+type TransferStatus = variant {
+  Pending;
+  Completed;
+  Failed;
+};
+
+type RiskLevel = variant {
+  Low;
+  Medium;
+  High;
+};
+
 type IOData = record {
   data_type: text;
   value: text;
@@ -28,19 +40,29 @@ type CallItem = record {
   agent: text;
   call_type: text;
   method: text;
-  inputs: vec IOData;  // Changed from input to inputs (array)
-  outputs: vec IOData; // Changed from output to outputs (array)
+  inputs: vec IOData;
+  outputs: vec IOData;
   status: text;
 };
 
 type TraceItem = record {
-  id: nat64;
+  id: text;
   trace_id: text;
   owner: text;
   created_at: nat64;
   updated_at: nat64;
   calls: vec CallItem;
   metadata: opt text;
+  amount: nat64;
+  from_account: Account;
+  to_account: Account;
+  status: TransferStatus;
+  error: opt text;
+};
+
+type Account = record {
+  owner: principal;
+  subaccount: opt vec nat8;
 };
 
 type AgentItem = record {
@@ -66,7 +88,7 @@ type McpItem = record {
   author: text;
   owner: text;
   git_repo: text;
-  exec_file:opt text;
+  exec_file: opt text;
   homepage: opt text;
   remote_endpoint: opt text;
   mcp_type: text;
@@ -89,16 +111,21 @@ type WorkItem = record {
   tags: vec text;
   metadata: opt text;
 };
+
 type SchemaProperty = record {
   property_type: text;
   description: opt text;
   default: opt text;
   enum_values: opt vec text;
+  items: opt SchemaProperty;
+  properties: opt vec record { text; SchemaProperty };
+  required: opt vec text;
 };
 
 type InputSchema = record {
   schema_type: text;
   properties: vec record { text; SchemaProperty };
+  required: opt vec text;
 };
 
 type Method = record {
@@ -128,17 +155,56 @@ type AioIndex = record {
 };
 
 type InvertedIndexItem = record {
-    keyword: text;
-    keyword_group: text;
-    mcp_name: text;
-    method_name: text;
-    source_field: text;
-    confidence: float32;
-    standard_match: text;
+  keyword: text;
+  keyword_group: text;
+  mcp_name: text;
+  method_name: text;
+  source_field: text;
+  confidence: float32;
+  standard_match: text;
+};
+
+type AccountInfo = record {
+  principal_id: text;
+  token_balance: nat;
+  symbol: text;
+  stack_balance: nat;
+  credit_balance: nat;
+  unclaimed_balance: nat;
+  last_claim_time: nat64;
+  last_claim_amount: nat;
+  last_claim_timestamp: nat64;
+};
+
+type TransferResult = record {
+  success: bool;
+  error: opt text;
+  block_height: opt nat64;
+};
+
+type RiskFactor = record {
+  factor_type: text;
+  description: text;
+  severity: float64;
+};
+
+type RiskMetrics = record {
+  amount_risk: float64;
+  frequency_risk: float64;
+  status_risk: float64;
+  pattern_risk: float64;
+};
+
+type RiskAnalysis = record {
+  risk_score: float64;
+  risk_factors: vec RiskFactor;
+  risk_level: RiskLevel;
+  suspicious_patterns: vec RiskFactor;
+  risk_metrics: RiskMetrics;
 };
 
 service : {
-  // Existing service
+  // Basic API
   "greet": (text) -> (text) query;
   
   // Agent Asset API
@@ -148,7 +214,7 @@ service : {
   "get_user_agent_items_paginated": (nat64, nat64) -> (vec AgentItem) query;
   "get_agent_items_paginated": (nat64, nat64) -> (vec AgentItem) query;
   "get_agent_item_by_name": (text) -> (opt AgentItem) query;
-  "add_agent_item": (AgentItem,text) -> (variant { Ok: nat64; Err: text });
+  "add_agent_item": (AgentItem, text) -> (variant { Ok: nat64; Err: text });
   "update_agent_item": (nat64, AgentItem) -> (variant { Ok; Err: text });
   
   // MCP Asset API
@@ -158,7 +224,7 @@ service : {
   "get_user_mcp_items_paginated": (nat64, nat64) -> (vec McpItem) query;
   "get_mcp_items_paginated": (nat64, nat64) -> (vec McpItem) query;
   "get_mcp_item_by_name": (text) -> (opt McpItem) query;
-  "add_mcp_item": (McpItem,text) -> (variant { Ok: nat64; Err: text });
+  "add_mcp_item": (McpItem, text) -> (variant { Ok: nat64; Err: text });
   "update_mcp_item": (nat64, McpItem) -> (variant { Ok; Err: text });
   "delete_mcp_item": (text) -> (variant { Ok; Err: text });
   
@@ -181,32 +247,39 @@ service : {
   "export_aio_index_to_json": (text) -> (variant { Ok: text; Err: text }) query;
   "get_aio_indices_count": () -> (nat64) query;
 
-  // Store inverted index
-  store_inverted_index: (text,text) -> (variant { Ok; Err: text });
+  // Inverted Index API
+  "store_inverted_index": (text, text) -> (variant { Ok; Err: text });
+  "get_all_inverted_index_items": () -> (text) query;
+  "get_all_keywords": () -> (text) query;
+  "find_inverted_index_by_keyword": (text) -> (text) query;
+  "find_inverted_index_by_group": (text) -> (text) query;
+  "find_inverted_index_by_mcp": (text) -> (text) query;
+  "find_inverted_index_by_confidence": (float32) -> (text) query;
+  "find_inverted_index_by_keywords": (vec text, float32) -> (text) query;
+  "delete_inverted_index_by_mcp": (text) -> (variant { Ok; Err: text });
+  "revert_Index_find_by_keywords_strategy": (vec text) -> (text) query;
 
-  // Get all inverted index items
-  get_all_inverted_index_items: () -> (text) query;
-
-  // Get all keywords
-  get_all_keywords: () -> (text) query;
-
-  // Find index items by keyword
-  find_inverted_index_by_keyword: (text) -> (text) query;
-
-  // Find index items by keyword group
-  find_inverted_index_by_group: (text) -> (text) query;
-
-  // Find index items by MCP name
-  find_inverted_index_by_mcp: (text) -> (text) query;
-
-  // Find index items by confidence threshold
-  find_inverted_index_by_confidence: (float32) -> (text) query;
-
-  // Find index items by multiple keywords with confidence threshold
-  find_inverted_index_by_keywords: (vec text, float32) -> (text) query;
-
-  // Delete all index items for a specific MCP
-  delete_inverted_index_by_mcp: (text) -> (variant { Ok; Err: text });
-  
-  revert_Index_find_by_keywords_strategy: (vec text) -> (text) query;
+  // Finance API
+  "get_account_info": (text) -> (opt AccountInfo) query;
+  "add_account": (text, text) -> (variant { Ok: AccountInfo; Err: text });
+  "get_all_accounts": () -> (vec AccountInfo) query;
+  "get_accounts_paginated": (nat64, nat64) -> (vec AccountInfo) query;
+  "delete_account": (text) -> (variant { Ok; Err: text });
+  "stack_token": (text, nat) -> (variant { Ok: record { account: AccountInfo; trace: TraceItem }; Err: text });
+  "unstack_token": (text, nat) -> (variant { Ok: record { account: AccountInfo; trace: TraceItem }; Err: text });
+  "add_credit": (text, nat) -> (variant { Ok: record { account: AccountInfo; trace: TraceItem }; Err: text });
+  "use_credit": (text, nat) -> (variant { Ok: record { account: AccountInfo; trace: TraceItem }; Err: text });
+  "batch_transfer": (text, vec record { Account; nat }) -> (variant { Ok: record { account: AccountInfo; traces: vec TraceItem; results: vec TransferResult }; Err: text });
+  "transfer_tokens": (text, Account, nat) -> (variant { Ok: record { account: AccountInfo; trace: TraceItem; result: TransferResult }; Err: text });
+  "add_unclaimed_balance": (text, nat) -> (variant { Ok: record { account: AccountInfo; trace: TraceItem }; Err: text });
+  "claim_token": (text, nat) -> (variant { Ok: record { account: AccountInfo; trace: TraceItem }; Err: text });
+  "add_token_balance": (text, nat) -> (variant { Ok: record { account: AccountInfo; trace: TraceItem }; Err: text });
+  "get_balance_summary": (text) -> (record { token_balance: nat; stack_balance: nat; credit_balance: nat; unclaimed_balance: nat }) query;
+  "get_traces_by_operation": (text, text) -> (vec TraceItem) query;
+  "get_traces_by_status": (text, TransferStatus) -> (vec TraceItem) query;
+  "get_traces_by_time_period": (text, text) -> (vec TraceItem) query;
+  "get_traces_sorted": (text, text, bool) -> (vec TraceItem) query;
+  "get_traces_with_filters": (text, opt vec text, opt vec TransferStatus, opt nat64, opt nat64, opt nat, opt nat, opt vec Account) -> (vec TraceItem) query;
+  "get_traces_statistics": (text, opt nat64, opt nat64) -> (record { total_count: nat64; total_amount: nat; success_amount: nat; failed_amount: nat }) query;
+  "analyze_risk": (text, opt nat64, opt nat64) -> (RiskAnalysis) query;
 }

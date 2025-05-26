@@ -3,6 +3,9 @@ mod mcp_asset_types;
 mod aio_workledger_types;
 mod aio_invert_index_types;
 mod aio_protocal_types;
+mod finance_types;
+mod account_storage;
+mod trace_storage;
 
 use agent_asset_types::AgentItem;
 use mcp_asset_types::McpItem;
@@ -10,6 +13,13 @@ use aio_workledger_types::TraceItem;
 use ic_cdk::caller;
 use aio_protocal_types::AioIndexManager;
 use serde_json;
+use icrc_ledger_types::{icrc1::account::Account, icrc1::transfer::TransferArg};
+use finance_types::{TransferStatus, TransferResult, NumTokens};
+use num_traits::ToPrimitive;
+
+pub use finance_types::*;
+pub use account_storage::*;
+pub use trace_storage::*;
 
 // Store inverted index
 #[ic_cdk::update]
@@ -517,5 +527,238 @@ fn revert_Index_find_by_keywords_strategy(keywords: Vec<String>) -> String {
     
     ic_cdk::println!("CALL[revert_Index_find_by_keywords_strategy] Output: {}", json_result);
     json_result
+}
+
+// ==== Finance API ====
+
+#[ic_cdk::query]
+fn get_account_info(principal_id: String) -> Option<AccountInfo> {
+    ic_cdk::println!("CALL[get_account_info] Input: principal_id={}", principal_id);
+    let result = AccountInfo::get_account_info(principal_id);
+    ic_cdk::println!("CALL[get_account_info] Output: accountInfo={:?}", result);
+    result
+}
+
+#[ic_cdk::update]
+fn add_account(principal_id: String, symbol: String) -> Result<AccountInfo, String> {
+    ic_cdk::println!("CALL[add_account] Input: principal_id={}, symbol={}", principal_id, symbol);
+    let account = AccountInfo::new(principal_id.clone(), symbol);
+    let result = upsert_account(account.clone());
+    ic_cdk::println!("CALL[add_account] Output: {:?}", result);
+    result.map(|_| account)
+}
+
+#[ic_cdk::query]
+fn get_all_accounts() -> Vec<AccountInfo> {
+    ic_cdk::println!("CALL[get_all_accounts] Input: none");
+    let result = get_all_accounts();
+    ic_cdk::println!("CALL[get_all_accounts] Output: count={}", result.len());
+    result
+}
+
+#[ic_cdk::query]
+fn get_accounts_paginated(offset: u64, limit: usize) -> Vec<AccountInfo> {
+    ic_cdk::println!("CALL[get_accounts_paginated] Input: offset={}, limit={}", offset, limit);
+    let result = get_accounts_paginated(offset, limit);
+    ic_cdk::println!("CALL[get_accounts_paginated] Output: count={}", result.len());
+    result
+}
+
+#[ic_cdk::update]
+fn delete_account(principal_id: String) -> Result<(), String> {
+    ic_cdk::println!("CALL[delete_account] Input: principal_id={}", principal_id);
+    let result = delete_account(principal_id);
+    ic_cdk::println!("CALL[delete_account] Output: {:?}", result);
+    result
+}
+
+#[ic_cdk::update]
+fn stack_token(principal_id: String, amount: u128) -> Result<(AccountInfo, TraceItem), String> {
+    ic_cdk::println!("CALL[stack_token] Input: principal_id={}, amount={}", principal_id, amount);
+    let mut account = AccountInfo::get_account_info(principal_id.clone()).ok_or("Account not found")?;
+    let result = account.stack_token(NumTokens::from(amount));
+    if let Ok((updated_account, trace)) = &result {
+        upsert_account(updated_account.clone()).map_err(|e| format!("Failed to persist account: {}", e))?;
+    }
+    ic_cdk::println!("CALL[stack_token] Output: {:?}", result);
+    result
+}
+
+#[ic_cdk::update]
+fn unstack_token(principal_id: String, amount: u128) -> Result<(AccountInfo, TraceItem), String> {
+    ic_cdk::println!("CALL[unstack_token] Input: principal_id={}, amount={}", principal_id, amount);
+    let mut account = AccountInfo::get_account_info(principal_id.clone()).ok_or("Account not found")?;
+    let result = account.unstack_token(NumTokens::from(amount));
+    if let Ok((updated_account, trace)) = &result {
+        upsert_account(updated_account.clone()).map_err(|e| format!("Failed to persist account: {}", e))?;
+    }
+    ic_cdk::println!("CALL[unstack_token] Output: {:?}", result);
+    result
+}
+
+#[ic_cdk::update]
+fn add_credit(principal_id: String, amount: u128) -> Result<(AccountInfo, TraceItem), String> {
+    ic_cdk::println!("CALL[add_credit] Input: principal_id={}, amount={}", principal_id, amount);
+    let mut account = AccountInfo::get_account_info(principal_id.clone()).ok_or("Account not found")?;
+    let result = account.add_credit(NumTokens::from(amount));
+    if let Ok((updated_account, trace)) = &result {
+        upsert_account(updated_account.clone()).map_err(|e| format!("Failed to persist account: {}", e))?;
+    }
+    ic_cdk::println!("CALL[add_credit] Output: {:?}", result);
+    result
+}
+
+#[ic_cdk::update]
+fn use_credit(principal_id: String, amount: u128) -> Result<(AccountInfo, TraceItem), String> {
+    ic_cdk::println!("CALL[use_credit] Input: principal_id={}, amount={}", principal_id, amount);
+    let mut account = AccountInfo::get_account_info(principal_id.clone()).ok_or("Account not found")?;
+    let result = account.use_credit(NumTokens::from(amount));
+    if let Ok((updated_account, trace)) = &result {
+        upsert_account(updated_account.clone()).map_err(|e| format!("Failed to persist account: {}", e))?;
+    }
+    ic_cdk::println!("CALL[use_credit] Output: {:?}", result);
+    result
+}
+
+#[ic_cdk::update]
+fn batch_transfer(principal_id: String, transfers: Vec<(Account, u128)>) -> Result<(AccountInfo, Vec<TraceItem>, Vec<TransferResult>), String> {
+    ic_cdk::println!("CALL[batch_transfer] Input: principal_id={}, transfers={:?}", principal_id, transfers);
+    let mut account = AccountInfo::get_account_info(principal_id.clone()).ok_or("Account not found")?;
+    let transfers_nt: Vec<(Account, NumTokens)> = transfers.into_iter().map(|(acc, amt)| (acc, NumTokens::from(amt))).collect();
+    let result = account.batch_transfer(transfers_nt);
+    if let Ok((updated_account, traces, results)) = &result {
+        upsert_account(updated_account.clone()).map_err(|e| format!("Failed to persist account: {}", e))?;
+    }
+    ic_cdk::println!("CALL[batch_transfer] Output: {:?}", result);
+    result
+}
+
+#[ic_cdk::update]
+fn transfer_tokens(principal_id: String, to_account: Account, amount: u128) -> Result<(AccountInfo, TraceItem, TransferResult), String> {
+    ic_cdk::println!("CALL[transfer_tokens] Input: principal_id={}, to_account={:?}, amount={}", principal_id, to_account, amount);
+    let mut account = AccountInfo::get_account_info(principal_id.clone()).ok_or("Account not found")?;
+    let result = account.transfer_tokens(to_account, NumTokens::from(amount));
+    if let Ok((updated_account, trace, transfer_result)) = &result {
+        upsert_account(updated_account.clone()).map_err(|e| format!("Failed to persist account: {}", e))?;
+    }
+    ic_cdk::println!("CALL[transfer_tokens] Output: {:?}", result);
+    result
+}
+
+#[ic_cdk::update]
+fn add_unclaimed_balance(principal_id: String, amount: u128) -> Result<(AccountInfo, TraceItem), String> {
+    ic_cdk::println!("CALL[add_unclaimed_balance] Input: principal_id={}, amount={}", principal_id, amount);
+    let mut account = AccountInfo::get_account_info(principal_id.clone()).ok_or("Account not found")?;
+    let result = account.add_unclaimed_balance(NumTokens::from(amount));
+    if let Ok((updated_account, trace)) = &result {
+        upsert_account(updated_account.clone()).map_err(|e| format!("Failed to persist account: {}", e))?;
+    }
+    ic_cdk::println!("CALL[add_unclaimed_balance] Output: {:?}", result);
+    result
+}
+
+#[ic_cdk::update]
+fn claim_token(principal_id: String, amount: u128) -> Result<(AccountInfo, TraceItem), String> {
+    ic_cdk::println!("CALL[claim_token] Input: principal_id={}, amount={}", principal_id, amount);
+    let mut account = AccountInfo::get_account_info(principal_id.clone()).ok_or("Account not found")?;
+    let result = account.claim_token(NumTokens::from(amount));
+    if let Ok((updated_account, trace)) = &result {
+        upsert_account(updated_account.clone()).map_err(|e| format!("Failed to persist account: {}", e))?;
+    }
+    ic_cdk::println!("CALL[claim_token] Output: {:?}", result);
+    result
+}
+
+#[ic_cdk::update]
+fn add_token_balance(principal_id: String, amount: u128) -> Result<(AccountInfo, TraceItem), String> {
+    ic_cdk::println!("CALL[add_token_balance] Input: principal_id={}, amount={}", principal_id, amount);
+    let mut account = AccountInfo::get_account_info(principal_id.clone()).ok_or("Account not found")?;
+    let result = account.add_token_balance(NumTokens::from(amount));
+    if let Ok((updated_account, trace)) = &result {
+        upsert_account(updated_account.clone()).map_err(|e| format!("Failed to persist account: {}", e))?;
+    }
+    ic_cdk::println!("CALL[add_token_balance] Output: {:?}", result);
+    result
+}
+
+#[ic_cdk::query]
+fn get_balance_summary(principal_id: String) -> (u128, u128, u128, u128) {
+    ic_cdk::println!("CALL[get_balance_summary] Input: principal_id={}", principal_id);
+    if let Some(account) = AccountInfo::get_account_info(principal_id) {
+        let (a, b, c, d) = account.get_balance_summary();
+        (
+            a.0.to_string().parse::<u128>().unwrap_or(0),
+            b.0.to_string().parse::<u128>().unwrap_or(0),
+            c.0.to_string().parse::<u128>().unwrap_or(0),
+            d.0.to_string().parse::<u128>().unwrap_or(0),
+        )
+    } else {
+        (0, 0, 0, 0)
+    }
+}
+
+#[ic_cdk::query]
+fn get_traces_by_operation(principal_id: String, operation: String) -> Vec<TraceItem> {
+    ic_cdk::println!("CALL[get_traces_by_operation] Input: principal_id={}, operation={}", principal_id, operation);
+    let result = get_traces_by_operation(principal_id, operation);
+    ic_cdk::println!("CALL[get_traces_by_operation] Output: count={}", result.len());
+    result
+}
+
+#[ic_cdk::query]
+fn get_traces_by_status(principal_id: String, status: TransferStatus) -> Vec<TraceItem> {
+    ic_cdk::println!("CALL[get_traces_by_status] Input: principal_id={}, status={:?}", principal_id, status);
+    let result = get_traces_by_status(principal_id, status);
+    ic_cdk::println!("CALL[get_traces_by_status] Output: count={}", result.len());
+    result
+}
+
+#[ic_cdk::query]
+fn get_traces_by_time_period(principal_id: String, time_period: String) -> Vec<TraceItem> {
+    ic_cdk::println!("CALL[get_traces_by_time_period] Input: principal_id={}, time_period={}", principal_id, time_period);
+    let result = get_traces_by_time_period(principal_id, time_period);
+    ic_cdk::println!("CALL[get_traces_by_time_period] Output: count={}", result.len());
+    result
+}
+
+#[ic_cdk::query]
+fn get_traces_sorted(principal_id: String, sort_by: String, ascending: bool) -> Vec<TraceItem> {
+    ic_cdk::println!("CALL[get_traces_sorted] Input: principal_id={}, sort_by={}, ascending={}", principal_id, sort_by, ascending);
+    let result = get_traces_sorted(principal_id, sort_by, ascending);
+    ic_cdk::println!("CALL[get_traces_sorted] Output: count={}", result.len());
+    result
+}
+
+#[ic_cdk::query]
+fn get_traces_with_filters(
+    principal_id: String,
+    operations: Option<Vec<String>>,
+    statuses: Option<Vec<TransferStatus>>,
+    start_time: Option<u64>,
+    end_time: Option<u64>,
+    min_amount: Option<u128>,
+    max_amount: Option<u128>,
+    accounts: Option<Vec<Account>>
+) -> Vec<TraceItem> {
+    ic_cdk::println!("CALL[get_traces_with_filters] Input: principal_id={}, filters={:?}", principal_id, (operations.clone(), statuses.clone(), start_time, end_time, min_amount, max_amount, accounts.clone()));
+    let result = get_traces_with_filters(principal_id, operations, statuses, start_time, end_time, min_amount, max_amount, accounts);
+    ic_cdk::println!("CALL[get_traces_with_filters] Output: count={}", result.len());
+    result
+}
+
+#[ic_cdk::query]
+fn get_traces_statistics(principal_id: String, start_time: Option<u64>, end_time: Option<u64>) -> (u64, u128, u128, u128) {
+    ic_cdk::println!("CALL[get_traces_statistics] Input: principal_id={}, start_time={:?}, end_time={:?}", principal_id, start_time, end_time);
+    let result = get_traces_statistics(principal_id, start_time, end_time);
+    ic_cdk::println!("CALL[get_traces_statistics] Output: {:?}", result);
+    result
+}
+
+#[ic_cdk::query]
+fn analyze_risk(principal_id: String, start_time: Option<u64>, end_time: Option<u64>) -> RiskAnalysis {
+    ic_cdk::println!("CALL[analyze_risk] Input: principal_id={}, start_time={:?}, end_time={:?}", principal_id, start_time, end_time);
+    let result = analyze_risk(principal_id, start_time, end_time);
+    ic_cdk::println!("CALL[analyze_risk] Output: {:?}", result);
+    result
 }
 

@@ -11,7 +11,7 @@ type Memory = VirtualMemory<DefaultMemoryImpl>;
 // Trace data structure for workflow ledger
 #[derive(CandidType, Serialize, Deserialize, Clone, Debug)]
 pub struct TraceItem {
-    pub id: u64,
+    pub context_id: String,
     pub trace_id: String,
     pub owner: String, // Principal ID as string
     pub created_at: u64,
@@ -104,7 +104,7 @@ thread_local! {
 /// Add a new trace to the storage
 pub fn add_trace(trace: TraceItem) -> Result<u64, String> {
     TRACE_ITEMS.with(|items| {
-        let items = items.borrow_mut();
+        let mut items = items.borrow_mut();
         let index = items.len();
         let mut new_trace = trace;
         
@@ -112,8 +112,6 @@ pub fn add_trace(trace: TraceItem) -> Result<u64, String> {
         if new_trace.trace_id.is_empty() {
             return Err("Trace ID must be provided".to_string());
         }
-        
-        new_trace.id = index;
         
         // Check if trace_id already exists
         if TRACE_ID_INDEX.with(|idx| idx.borrow().contains_key(&new_trace.trace_id)) {
@@ -124,19 +122,19 @@ pub fn add_trace(trace: TraceItem) -> Result<u64, String> {
         items.push(&new_trace).map_err(|e| format!("Failed to store trace: {:?}", e))?;
         
         // Create owner index entry
-        USER_TRACE_INDEX.with(|index| {
-            let mut index = index.borrow_mut();
+        USER_TRACE_INDEX.with(|index_map| {
+            let mut index_map = index_map.borrow_mut();
             let key = UserTraceKey { 
                 owner: new_trace.owner.clone(), 
                 trace_id: new_trace.trace_id.clone(),
             };
-            index.insert(key, new_trace.id);
+            index_map.insert(key, index);
         });
         
         // Create trace_id index entry
-        TRACE_ID_INDEX.with(|index| {
-            let mut index = index.borrow_mut();
-            index.insert(new_trace.trace_id.clone(), new_trace.id);
+        TRACE_ID_INDEX.with(|index_map| {
+            let mut index_map = index_map.borrow_mut();
+            index_map.insert(new_trace.trace_id.clone(), index);
         });
         
         Ok(index)
