@@ -5,7 +5,7 @@ use ic_stable_structures::memory_manager::{MemoryId, MemoryManager, VirtualMemor
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::cell::RefCell;
-use crate::finance_types::AccountInfo;
+use crate::token_economy_types::AccountInfo;
 use std::collections::HashMap;
 use candid::Principal;
 use std::sync::LazyLock;
@@ -59,6 +59,13 @@ pub fn upsert_account(account: AccountInfo) -> Result<AccountInfo, String> {
     ACCOUNTS.with(|accounts| {
         let mut accounts = accounts.borrow_mut();
         let key = AccountKey { principal_id: account.principal_id.clone() };
+        
+        // Check if account already exists
+        if let Some(existing_account) = accounts.get(&key) {
+            return Ok(existing_account.clone());
+        }
+        
+        // Only insert if account doesn't exist
         accounts.insert(key, account.clone());
         Ok(account)
     })

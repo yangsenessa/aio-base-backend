@@ -1,161 +1,151 @@
 # AIO Base Backend
 
-## Overview
-AIO Base Backend is a Rust-based Internet Computer (IC) canister that serves as the foundation for the AIO ecosystem. It provides core functionality for managing agents, MCPs (Multi-Channel Protocols), work items, and traces within the AIO platform.
+This is the backend service for the AIO platform, providing core functionality for agent management, MCP (Multi-Chain Protocol) operations, and token economy.
 
 ## Features
-- **Agent Management**: Register, update, and query AI agents with detailed metadata
-- **MCP Management**: Handle Multi-Channel Protocols with comprehensive configuration options
-- **Work Tracking**: Manage work items with status tracking and metadata
-- **Trace System**: Track and monitor agent interactions and executions
-- **AIO Protocol Index**: Create and manage protocol indices for better discovery and integration
-- **Inverted Index**: Advanced search capabilities for efficient resource discovery
-
-## Architecture
-
-### Core Components
-1. **Agent Registry**
-   - Agent registration and management
-   - Platform-specific configurations
-   - Version control and metadata
-
-2. **MCP Registry**
-   - Protocol registration and management
-   - Resource and tool management
-   - Community integration
-
-3. **Work Management System**
-   - Task tracking and status management
-   - Assignment and ownership
-   - Metadata and tagging
-
-4. **Trace System**
-   - Execution tracking
-   - Call history
-   - Performance monitoring
-
-5. **Index Management**
-   - Protocol indexing
-   - Search optimization
-   - Resource discovery
-
-## API Reference
 
 ### Agent Management
-```candid
-get_agent_item: (nat64) -> (opt AgentItem) query
-get_all_agent_items: () -> (vec AgentItem) query
-add_agent_item: (AgentItem, text) -> (variant { Ok: nat64; Err: text })
-update_agent_item: (nat64, AgentItem) -> (variant { Ok; Err: text })
-```
+- Create, read, update, and delete agent items
+- Paginated queries for agent listings
+- User-specific agent management
+- Search and filter capabilities
 
-### MCP Management
-```candid
-get_mcp_item: (nat64) -> (opt McpItem) query
-get_all_mcp_items: () -> (vec McpItem) query
-add_mcp_item: (McpItem, text) -> (variant { Ok: nat64; Err: text })
-update_mcp_item: (nat64, McpItem) -> (variant { Ok; Err: text })
-```
+### MCP (Multi-Chain Protocol) Management
+- CRUD operations for MCP items
+- Paginated queries for MCP listings
+- User-specific MCP management
+- Search and filter capabilities
 
-### Trace System
-```candid
-get_trace: (nat64) -> (opt TraceItem) query
-get_trace_by_id: (text) -> (opt TraceItem) query
-add_trace: (TraceItem) -> (variant { Ok: nat64; Err: text })
-```
+### Work Ledger System
+- Trace management for operations
+- Status tracking (Todo, InProgress, Completed, Cancelled)
+- Paginated queries for traces
+- Filtering and sorting capabilities
 
-### Index Management
-```candid
-create_aio_index_from_json: (text, text) -> (variant { Ok; Err: text })
-get_aio_index: (text) -> (opt AioIndex) query
-search_aio_indices_by_keyword: (text) -> (vec AioIndex) query
-```
+### Finance System
+- Token account management
+- Credit stacking and unstacking
+- Token claiming and balance management
+- Balance summaries and statistics
+- Trace-based operation tracking
 
-### Inverted Index Strategy Search
-The `revert_Index_find_by_keywords_strategy` function implements an advanced search algorithm for finding the most relevant inverted index item based on multiple keywords. Here's how it works:
+#### Key Finance Features:
+- **Account Management**
+  - Create and manage token accounts
+  - View account balances and information
+  - Delete accounts when needed
 
-#### Input
-- An array of keywords to search for
+- **Credit Operations**
+  - Stack credits for enhanced benefits
+  - Unstack credits when needed
+  - Track credit activities and history
 
-#### Algorithm Steps
-1. **Initial Filtering**
-   - Excludes items where `method_name` equals 'help'
-   - Filters out items with `confidence` less than 0.9
-   - Collects all matching items for each keyword
+- **Token Operations**
+  - Claim tokens based on eligibility
+  - Add token balances
+  - Transfer tokens between accounts
+  - Track token activities and history
 
-2. **Scoring System**
-   - Counts how many keywords match each item
-   - Maintains a mapping of MCP names to their matching items and scores
+- **Balance Tracking**
+  - View AIO balance
+  - Monitor staked credits
+  - Track credit balance
+  - Check unclaimed balance
 
-3. **Prioritization Rules**
-   The algorithm sorts results using the following priority order:
-   1. `standard_match` equals 'true' (highest priority)
-   2. Number of keyword matches (secondary priority)
-   3. Confidence score (tertiary priority)
+### Token Economy
+- Token emission and distribution
+- Subscription plan management
+- Kappa multiplier system
+- Token grants and vesting
 
-4. **Result Selection**
-   - Returns the single most relevant item as a JSON string
-   - Returns an empty JSON object `{}` if no matches are found
+#### Key Token Economy Features:
+- **Emission System**
+  - Base emission rate configuration
+  - Kappa factor adjustments
+  - Staking bonus calculations
+  - Subscription-based multipliers
 
-#### Example Usage
-```candid
-revert_Index_find_by_keywords_strategy: (vec text) -> (text) query
-```
+- **Subscription Plans**
+  - Free tier
+  - Basic plan
+  - Premium plan
+  - Enterprise plan
 
-#### Return Format
-```json
-{
-    "keyword": "string",
-    "keyword_group": "string",
-    "mcp_name": "string",
-    "method_name": "string",
-    "source_field": "string",
-    "confidence": float,
-    "standard_match": "string"
-}
-```
+- **Token Grants**
+  - Create token grants with vesting periods
+  - Track grant status and claimed amounts
+  - Manage vesting schedules
+  - Claim vested tokens
 
-## Getting Started
+- **Activity Tracking**
+  - Token activity monitoring
+  - Credit activity tracking
+  - Operation statistics
+  - Historical data analysis
+
+## API Endpoints
+
+### Agent API
+- `get_agent_item`: Retrieve a specific agent
+- `get_all_agent_items`: List all agents
+- `get_user_agent_items`: Get user's agents
+- `add_agent_item`: Create a new agent
+- `update_agent_item`: Modify an existing agent
+
+### MCP API
+- `get_mcp_item`: Retrieve a specific MCP
+- `get_all_mcp_items`: List all MCPs
+- `get_user_mcp_items`: Get user's MCPs
+- `add_mcp_item`: Create a new MCP
+- `update_mcp_item`: Modify an existing MCP
+
+### Work Ledger API
+- `get_trace`: Retrieve a specific trace
+- `get_user_traces`: Get user's traces
+- `add_trace`: Create a new trace
+- `get_traces_with_filters`: Search traces with filters
+
+### Finance API
+- `get_account_info`: Get account details
+- `add_account`: Create a new account
+- `stack_credit`: Stack credits for benefits
+- `unstack_credit`: Remove stacked credits
+- `claim_token`: Claim available tokens
+- `add_token_balance`: Add tokens to account
+- `get_balance_summary`: Get account balance overview
+
+### Token Economy API
+- `convert_aio_to_credits`: Convert AIO tokens to credits
+- `update_exchange_ratio`: Modify exchange rates
+- `subscribe_plan`: Manage subscription plans
+- `get_kappa`: Retrieve kappa multiplier
+- `claim_reward`: Claim available rewards
+- `init_emission_policy`: Initialize emission rules
+- `calculate_emission`: Compute token emissions
+- `create_token_grant`: Create new token grants
+- `claim_vested_tokens`: Claim vested tokens
+
+## Development
 
 ### Prerequisites
-- Rust toolchain
+- Rust (latest stable version)
+- Cargo
 - Internet Computer SDK (dfx)
-- Cargo package manager
 
-### Installation
-1. Clone the repository
-2. Install dependencies:
+### Building
 ```bash
 cargo build
 ```
 
-### Development
-1. Start local IC replica:
+### Testing
 ```bash
-dfx start --background
+cargo test
 ```
 
-2. Deploy the canister:
+### Deployment
 ```bash
 dfx deploy
 ```
-
-## Dependencies
-- candid = "0.10"
-- ic-cdk = "0.13"
-- ic-cdk-timers = "0.7"
-- ic-stable-structures = "0.6"
-- serde = "1"
-- serde_json = "1.0"
-- serde_bytes = "0.11"
-- serde_cbor = "0.11"
-
-## Contributing
-1. Fork the repository
-2. Create your feature branch
-3. Commit your changes
-4. Push to the branch
-5. Create a Pull Request
 
 ## License
 This project is licensed under the MIT License - see the LICENSE file for details.
