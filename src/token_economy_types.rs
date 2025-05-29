@@ -68,23 +68,32 @@ pub struct EmissionPolicy {
     pub last_update_time: u64,
 }
 
+#[derive(CandidType, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub enum TokenGrantStatus {
+    Pending,
+    Active,
+    Completed,
+    Cancelled,
+}
+
 #[derive(CandidType, Serialize, Deserialize, Clone, Debug)]
 pub struct TokenGrant {
     pub recipient: String,
     pub amount: u64,
-    pub vesting_period: u64,
     pub start_time: u64,
     pub claimed_amount: u64,
+    pub status: TokenGrantStatus,
 }
 
 #[derive(CandidType, Serialize, Deserialize, Clone, Debug)]
 pub struct TokenInfo {
-    pub balance: u64,
+    pub token_balance: u64,
+    pub credit_balance: u64,
     pub staked_credits: u64,
     pub kappa_multiplier: f64,
 }
 
-#[derive(CandidType, Serialize, Deserialize, Clone, Debug)]
+#[derive(CandidType, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub enum TransferStatus {
     Pending,
     Completed,
@@ -94,9 +103,7 @@ pub enum TransferStatus {
 #[derive(CandidType, Serialize, Deserialize, Clone, Debug)]
 pub struct AccountInfo {
     pub principal_id: String,
-    pub balance: u64,
-    pub stack_balance: u64,
-    pub kappa_multiplier: f64,
+    pub token_info: TokenInfo,
     pub created_at: u64,
     pub updated_at: u64,
     pub metadata: Option<String>,
@@ -109,11 +116,34 @@ impl AccountInfo {
     }
 
     pub fn get_kappa_multiplier(&self) -> f64 {
-        self.kappa_multiplier
+        self.token_info.kappa_multiplier
     }
 
     pub fn get_staked_credits(&self) -> u64 {
-        self.stack_balance
+        self.token_info.staked_credits
+    }
+
+    pub fn get_token_balance(&self) -> u64 {
+        self.token_info.token_balance
+    }
+
+    pub fn get_credit_balance(&self) -> u64 {
+        self.token_info.credit_balance
+    }
+
+    pub fn new(principal_id: String) -> Self {
+        Self {
+            principal_id,
+            token_info: TokenInfo {
+                token_balance: 0,
+                credit_balance: 0,
+                staked_credits: 0,
+                kappa_multiplier: 1.0,
+            },
+            created_at: ic_cdk::api::time(),
+            updated_at: ic_cdk::api::time(),
+            metadata: None,
+        }
     }
 }
 

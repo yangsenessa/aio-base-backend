@@ -171,37 +171,19 @@ type InvertedIndexItem = record {
   standard_match: text;
 };
 
-type TokenAccount = record {
-  principal_id: text;
-  aio_balance: nat64;
+type TokenInfo = record {
+  token_balance: nat64;
   credit_balance: nat64;
   staked_credits: nat64;
-  staking_start_time: opt nat64;
-  subscription_plan: opt SubscriptionPlan;
-  last_claim_time: opt nat64;
   kappa_multiplier: float64;
 };
 
-type EmissionPolicy = record {
-  base_rate: nat64;
-  kappa_factor: float64;
-  staking_bonus: float64;
-  subscription_multipliers: vec record { SubscriptionPlan; float64 };
-  last_update_time: nat64;
-};
-
-type TokenGrant = record {
-  recipient: text;
-  amount: nat64;
-  vesting_period: nat64;
-  start_time: nat64;
-  claimed_amount: nat64;
-};
-
-type TokenInfo = record {
-  balance: nat64;
-  staked_credits: nat64;
-  kappa_multiplier: float64;
+type AccountInfo = record {
+  principal_id: text;
+  token_info: TokenInfo;
+  created_at: nat64;
+  updated_at: nat64;
+  metadata: opt text;
 };
 
 type TokenActivityType = variant {
@@ -238,6 +220,29 @@ type CreditActivity = record {
   activity_type: CreditActivityType;
   status: TransferStatus;
   metadata: opt text;
+};
+
+type TokenGrantStatus = variant {
+  Pending;
+  Active;
+  Completed;
+  Cancelled;
+};
+
+type TokenGrant = record {
+  recipient: text;
+  amount: nat64;
+  start_time: nat64;
+  claimed_amount: nat64;
+  status: TokenGrantStatus;
+};
+
+type EmissionPolicy = record {
+  base_rate: nat64;
+  kappa_factor: float64;
+  staking_bonus: float64;
+  subscription_multipliers: vec record { SubscriptionPlan; float64 };
+  last_update_time: nat64;
 };
 
 service : {
@@ -297,16 +302,16 @@ service : {
   "revert_Index_find_by_keywords_strategy": (vec text) -> (text) query;
 
   // Finance API
-  "get_account_info": (text) -> (opt TokenAccount) query;
-  "add_account": (text, text) -> (variant { Ok: TokenAccount; Err: text });
-  "get_all_accounts": () -> (vec TokenAccount) query;
-  "get_accounts_paginated": (nat64, nat64) -> (vec TokenAccount) query;
+  "get_account_info": (text) -> (opt AccountInfo) query;
+  "add_account": (text) -> (variant { Ok: AccountInfo; Err: text });
+  "get_all_accounts": () -> (vec AccountInfo) query;
+  "get_accounts_paginated": (nat64, nat64) -> (vec AccountInfo) query;
   "delete_account": (text) -> (variant { Ok; Err: text });
-  "stack_credit": (text, nat64) -> (variant { Ok: TokenAccount; Err: text });
-  "unstack_credit": (text, nat64) -> (variant { Ok: TokenAccount; Err: text });
-  "claim_token": (text, nat64) -> (variant { Ok: TokenAccount; Err: text });
-  "add_token_balance": (text, nat64) -> (variant { Ok: TokenAccount; Err: text });
-  "get_balance_summary": (text) -> (record { aio_balance: nat64; staked_credits: nat64; credit_balance: nat64; unclaimed_balance: nat64 }) query;
+  "stack_credit": (text, nat64) -> (variant { Ok: AccountInfo; Err: text });
+  "unstack_credit": (text, nat64) -> (variant { Ok: AccountInfo; Err: text });
+  "claim_token": (text, nat64) -> (variant { Ok: AccountInfo; Err: text });
+  "add_token_balance": (text, nat64) -> (variant { Ok: AccountInfo; Err: text });
+  "get_balance_summary": (text) -> (record { total_count: nat64; total_amount: nat64; success_count: nat64; unclaimed_balance: nat64 }) query;
   "get_traces_by_operation": (text, text) -> (vec TraceItem) query;
   "get_traces_by_status": (text, TransferStatus) -> (vec TraceItem) query;
   "get_traces_by_time_period": (text, text) -> (vec TraceItem) query;
@@ -326,9 +331,12 @@ service : {
   "update_emission_policy": (EmissionPolicy) -> (variant { Ok; Err: text });
   "create_token_grant": (TokenGrant) -> (variant { Ok; Err: text });
   "get_token_grant": (text) -> (variant { Ok: TokenGrant; Err: text }) query;
-  "claim_vested_tokens": (text) -> (variant { Ok: nat64; Err: text });
+  "claim_grant": (text) -> (variant { Ok: nat64; Err: text });
   "get_all_token_grants": () -> (vec TokenGrant) query;
-  "get_account_token_info": (text) -> (variant { Ok: TokenInfo; Err: text }) query;
+  "get_token_grants_paginated": (nat64, nat64) -> (vec TokenGrant) query;
+  "get_token_grants_by_recipient": (text) -> (vec TokenGrant) query;
+  "get_token_grants_by_status": (text) -> (vec TokenGrant) query;
+  "get_token_grants_count": () -> (nat64) query;
 
   // Token Activity API
   "get_token_activities": (text) -> (vec TokenActivity) query;
@@ -346,7 +354,7 @@ service : {
 
   // Additional Methods
   "log_credit_usage": (text, nat64, text, opt text) -> (variant { Ok; Err: text });
-  "use_credit": (text, nat64, text, opt text) -> (variant { Ok: TokenAccount; Err: text });
+  "use_credit": (text, nat64, text, opt text) -> (variant { Ok: AccountInfo; Err: text });
   "grant_token": (TokenGrant) -> (variant { Ok; Err: text });
-  "transfer_token": (text, text, nat64) -> (variant { Ok: TokenAccount; Err: text });
+  "transfer_token": (text, text, nat64) -> (variant { Ok: AccountInfo; Err: text });
 }

@@ -5,7 +5,7 @@ use std::cell::RefCell;
 use crate::token_economy_types::{
     EmissionPolicy, SubscriptionPlan, TokenGrant, TokenGrantKey,
     TokenActivity, TokenActivityType, CreditActivity, CreditActivityType,
-    TransferStatus, AccountInfo
+    TransferStatus, AccountInfo, TokenInfo, TokenGrantStatus
 };
 use icrc_ledger_types::{icrc1::account::Account, icrc1::transfer::{TransferError, BlockIndex}};
 use crate::trace_storage::get_trace;
@@ -21,67 +21,7 @@ use serde::{Serialize, Deserialize};
 // Re-export NumTokens for public use
 pub use icrc_ledger_types::icrc1::transfer::NumTokens;
 
-#[derive(CandidType, Serialize, Deserialize, Clone, Debug)]
-pub struct TransferResult {
-    pub success: bool,
-    pub error: Option<TransferError>,
-    pub block_height: Option<u64>,
-}
-
 type Memory = VirtualMemory<DefaultMemoryImpl>;
-
-#[derive(CandidType, Serialize, Deserialize, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub struct TokenAccountKey {
-    pub principal_id: String,
-}
-
-#[derive(CandidType, Serialize, Deserialize, Clone, Debug)]
-pub struct TokenAccount {
-    pub principal_id: String,
-    pub aio_balance: u64,
-    pub credit_balance: u64,
-    pub staked_credits: u64,
-    pub staking_start_time: Option<u64>,
-    pub subscription_plan: Option<SubscriptionPlan>,
-    pub last_claim_time: Option<u64>,
-    pub kappa_multiplier: f64,
-}
-
-impl ic_stable_structures::Storable for TokenAccountKey {
-    fn to_bytes(&self) -> std::borrow::Cow<[u8]> {
-        Cow::Owned(Encode!(&self.principal_id).expect("Failed to encode TokenAccountKey"))
-    }
-
-    fn from_bytes(bytes: std::borrow::Cow<[u8]>) -> Self {
-        let principal_id = Decode!(bytes.as_ref(), String).expect("Failed to decode TokenAccountKey");
-        Self { principal_id }
-    }
-
-    const BOUND: Bound = Bound::Bounded { max_size: 1024, is_fixed_size: false };
-}
-
-impl ic_stable_structures::Storable for TokenAccount {
-    fn to_bytes(&self) -> std::borrow::Cow<[u8]> {
-        Cow::Owned(Encode!(self).expect("Failed to encode TokenAccount"))
-    }
-
-    fn from_bytes(bytes: std::borrow::Cow<[u8]>) -> Self {
-        Decode!(bytes.as_ref(), Self).expect("Failed to decode TokenAccount")
-    }
-
-    const BOUND: Bound = Bound::Bounded { max_size: 1024 * 32, is_fixed_size: false };
-}
-
-thread_local! {
-    static MEMORY_MANAGER: RefCell<MemoryManager<DefaultMemoryImpl>> = 
-        RefCell::new(MemoryManager::init(DefaultMemoryImpl::default()));
-
-    static TOKEN_ACCOUNTS: RefCell<StableBTreeMap<TokenAccountKey, TokenAccount, Memory>> = RefCell::new(
-        StableBTreeMap::init(
-            MEMORY_MANAGER.with(|m| m.borrow().get(MemoryId::new(23)))
-        )
-    );
-}
 
 // Constants
 const EXCHANGE_RATIO: f64 = 1.0; // 1 AIO = 1 Credit
@@ -93,158 +33,353 @@ const DEFAULT_BASE_RATE: u64 = 100;
 const DEFAULT_KAPPA_FACTOR: f64 = 1.0;
 const DEFAULT_STAKING_BONUS: f64 = 0.1;
 
-// Exchange Module
-pub fn convert_aio_to_credits(principal_id: String, amount: u64) -> Result<u64, String> {
-    TOKEN_ACCOUNTS.with(|accounts| {
-        let mut accounts = accounts.borrow_mut();
-        let key = TokenAccountKey { principal_id: principal_id.clone() };
-        
-        let mut account = accounts.get(&key).unwrap_or_else(|| TokenAccount {
-            principal_id: principal_id.clone(),
-            aio_balance: 0,
-            credit_balance: 0,
-            staked_credits: 0,
-            staking_start_time: None,
-            subscription_plan: None,
-            last_claim_time: None,
-            kappa_multiplier: BASE_KAPPA,
-        });
-
-        if account.aio_balance < amount {
-            return Err("Insufficient AIO balance".to_string());
-        }
-
-        let credits = (amount as f64 * EXCHANGE_RATIO) as u64;
-        account.aio_balance -= amount;
-        account.credit_balance += credits;
-        
-        accounts.insert(key, account);
-        Ok(credits)
-    })
+// Account Management
+pub fn get_account_info(principal_id: String) -> Option<AccountInfo> {
+    get_account(principal_id)
 }
 
-pub fn update_exchange_ratio(new_ratio: f64) -> Result<(), String> {
-    if new_ratio <= 0.0 {
-        return Err("Exchange ratio must be positive".to_string());
+pub fn create_account(principal_id: String) -> Result<AccountInfo, String> {
+    let account = AccountInfo::new(principal_id);
+    upsert_account(account)
+}
+
+pub fn update_account_balance(principal_id: String, token_amount: i64, credit_amount: i64) -> Result<AccountInfo, String> {
+    let mut account = get_account(principal_id.clone())
+        .ok_or_else(|| "Account not found".to_string())?;
+
+    if token_amount < 0 && account.get_token_balance() < (-token_amount) as u64 {
+        return Err("Insufficient token balance".to_string());
     }
-    // In a real implementation, this would update a global exchange ratio
-    Ok(())
+    if credit_amount < 0 && account.get_credit_balance() < (-credit_amount) as u64 {
+        return Err("Insufficient credit balance".to_string());
+    }
+
+    account.token_info.token_balance = (account.get_token_balance() as i64 + token_amount) as u64;
+    account.token_info.credit_balance = (account.get_credit_balance() as i64 + credit_amount) as u64;
+    account.updated_at = time();
+
+    upsert_account(account)
 }
 
-// Subscription Module
-pub fn subscribe_plan(principal_id: String, plan: SubscriptionPlan) -> Result<(), String> {
-    TOKEN_ACCOUNTS.with(|accounts| {
-        let mut accounts = accounts.borrow_mut();
-        let key = TokenAccountKey { principal_id: principal_id.clone() };
-        
-        let mut account = accounts.get(&key).unwrap_or_else(|| TokenAccount {
-            principal_id: principal_id.clone(),
-            aio_balance: 0,
-            credit_balance: 0,
-            staked_credits: 0,
-            staking_start_time: None,
-            subscription_plan: None,
-            last_claim_time: None,
-            kappa_multiplier: BASE_KAPPA,
-        });
-
-        account.subscription_plan = Some(plan);
-        accounts.insert(key, account);
-        Ok(())
-    })
-}
-
-// Credit Staking
-pub fn stack_credit(principal_id: String, amount: u64) -> Result<(), String> {
+// Credit Operations
+pub fn stack_credits(principal_id: String, amount: u64) -> Result<AccountInfo, String> {
     if amount < MIN_STAKE_AMOUNT {
         return Err(format!("Minimum stake amount is {}", MIN_STAKE_AMOUNT));
     }
 
-    TOKEN_ACCOUNTS.with(|accounts| {
-        let mut accounts = accounts.borrow_mut();
-        let key = TokenAccountKey { principal_id: principal_id.clone() };
-        
-        let mut account = accounts.get(&key).unwrap_or_else(|| TokenAccount {
-            principal_id: principal_id.clone(),
-            aio_balance: 0,
-            credit_balance: 0,
-            staked_credits: 0,
-            staking_start_time: None,
-            subscription_plan: None,
-            last_claim_time: None,
-            kappa_multiplier: BASE_KAPPA,
-        });
+    let mut account = get_account(principal_id.clone())
+        .ok_or_else(|| "Account not found".to_string())?;
 
-        if account.credit_balance < amount {
-            return Err("Insufficient credit balance".to_string());
-        }
+    if account.get_credit_balance() < amount {
+        return Err("Insufficient credit balance".to_string());
+    }
 
-        account.credit_balance -= amount;
-        account.staked_credits += amount;
-        account.staking_start_time = Some(time());
-        
-        accounts.insert(key, account);
+    account.token_info.credit_balance -= amount;
+    account.token_info.staked_credits += amount;
+    account.updated_at = time();
+    
+    let result = upsert_account(account.clone())?;
+
+    // Record credit activity
+    let activity = CreditActivity {
+        timestamp: time(),
+        principal_id: principal_id.clone(),
+        amount,
+        activity_type: CreditActivityType::Stack,
+        status: TransferStatus::Completed,
+        metadata: Some("Credit stacking".to_string()),
+    };
+    record_credit_activity(activity)?;
+
+    Ok(result)
+}
+
+pub fn unstack_credits(principal_id: String, amount: u64) -> Result<AccountInfo, String> {
+    let mut account = get_account(principal_id.clone())
+        .ok_or_else(|| "Account not found".to_string())?;
+
+    if account.get_staked_credits() < amount {
+        return Err("Insufficient staked credits".to_string());
+    }
+
+    account.token_info.staked_credits -= amount;
+    account.token_info.credit_balance += amount;
+    account.updated_at = time();
+    
+    let result = upsert_account(account.clone())?;
+
+    // Record credit activity
+    let activity = CreditActivity {
+        timestamp: time(),
+        principal_id: principal_id.clone(),
+        amount,
+        activity_type: CreditActivityType::Unstack,
+        status: TransferStatus::Completed,
+        metadata: Some("Credit unstacking".to_string()),
+    };
+    record_credit_activity(activity)?;
+
+    Ok(result)
+}
+
+// Token Operations
+pub fn transfer_tokens(from: String, to: String, amount: u64) -> Result<AccountInfo, String> {
+    let mut from_account = get_account(from.clone())
+        .ok_or_else(|| "From account not found".to_string())?;
+    
+    let mut to_account = get_account(to.clone())
+        .ok_or_else(|| "To account not found".to_string())?;
+    
+    if from_account.get_token_balance() < amount {
+        return Err("Insufficient token balance".to_string());
+    }
+
+    from_account.token_info.token_balance -= amount;
+    to_account.token_info.token_balance += amount;
+    
+    from_account.updated_at = time();
+    to_account.updated_at = time();
+    
+    upsert_account(from_account.clone())?;
+    upsert_account(to_account.clone())?;
+    
+    // Record token activity
+    let activity = TokenActivity {
+        timestamp: time(),
+        from: from.clone(),
+        to: to.clone(),
+        amount,
+        activity_type: TokenActivityType::Transfer,
+        status: TransferStatus::Completed,
+        metadata: Some("Token transfer".to_string()),
+    };
+    record_token_activity(activity)?;
+    
+    Ok(from_account)
+}
+
+// Credit Usage
+pub fn use_credits(principal_id: String, amount: u64, service: String, metadata: Option<String>) -> Result<AccountInfo, String> {
+    let mut account = get_account(principal_id.clone())
+        .ok_or_else(|| "Account not found".to_string())?;
+    
+    if account.get_credit_balance() < amount {
+        return Err("Insufficient credit balance".to_string());
+    }
+
+    account.token_info.credit_balance -= amount;
+    account.updated_at = time();
+    
+    let result = upsert_account(account.clone())?;
+    
+    // Record credit activity
+    let activity = CreditActivity {
+        timestamp: time(),
+        principal_id: principal_id.clone(),
+        amount,
+        activity_type: CreditActivityType::Spend,
+        status: TransferStatus::Completed,
+        metadata: Some(format!("Credit usage for service: {} - {}", service, metadata.unwrap_or_default())),
+    };
+    record_credit_activity(activity)?;
+    
+    Ok(result)
+}
+
+// Token Grant Operations
+pub fn create_token_grant(grant: TokenGrant) -> Result<(), String> {
+    crate::token_economy_types::TOKEN_GRANTS.with(|grants| {
+        let key = TokenGrantKey {
+            recipient: grant.recipient.clone(),
+        };
+        grants.borrow_mut().insert(key, grant);
         Ok(())
     })
 }
 
-// κ Multiplier
-pub fn get_kappa(principal_id: String) -> Result<f64, String> {
-    TOKEN_ACCOUNTS.with(|accounts| {
-        let accounts = accounts.borrow();
-        let key = TokenAccountKey { principal_id };
-        
-        if let Some(account) = accounts.get(&key) {
-            Ok(account.kappa_multiplier)
-        } else {
-            Ok(BASE_KAPPA)
-        }
+pub fn claim_grant(principal_id: &str) -> Result<u64, String> {
+    // First check if the account exists
+    let account = get_account(principal_id.to_string())
+        .ok_or_else(|| "Account not found".to_string())?;
+
+    // Get the grant using the principal_id as recipient
+    let grant = get_token_grant(principal_id)
+        .ok_or_else(|| "No grant found for this account".to_string())?;
+
+    let current_time = time();
+
+    if current_time < grant.start_time {
+        return Err("Grant period has not started".to_string());
+    }
+
+    let remaining_amount = grant.amount - grant.claimed_amount;
+    if remaining_amount == 0 {
+        return Err("No credits available to claim".to_string());
+    }
+
+    // Update grant
+    let mut updated_grant = grant.clone();
+    updated_grant.claimed_amount += remaining_amount;
+    updated_grant.status = TokenGrantStatus::Active;
+    create_token_grant(updated_grant)?;
+
+    // Update account credit balance
+    let mut account = account.clone();
+    account.token_info.credit_balance += remaining_amount;
+    account.updated_at = current_time;
+    upsert_account(account)?;
+
+    // Record credit activity
+    let activity = CreditActivity {
+        timestamp: current_time,
+        principal_id: principal_id.to_string(),
+        amount: remaining_amount,
+        activity_type: CreditActivityType::Earn,
+        status: TransferStatus::Completed,
+        metadata: Some("Grant credit claim".to_string()),
+    };
+    record_credit_activity(activity)?;
+
+    Ok(remaining_amount)
+}
+
+pub fn get_token_grant(recipient: &str) -> Option<TokenGrant> {
+    crate::token_economy_types::TOKEN_GRANTS.with(|grants| {
+        let key = TokenGrantKey {
+            recipient: recipient.to_string(),
+        };
+        grants.borrow().get(&key).map(|grant| grant.clone())
     })
 }
 
-// Reward Claim
-pub fn claim_reward(principal_id: String) -> Result<u64, String> {
-    TOKEN_ACCOUNTS.with(|accounts| {
-        let mut accounts = accounts.borrow_mut();
-        let key = TokenAccountKey { principal_id: principal_id.clone() };
-        
-        let mut account = accounts.get(&key).unwrap_or_else(|| TokenAccount {
-            principal_id: principal_id.clone(),
-            aio_balance: 0,
-            credit_balance: 0,
-            staked_credits: 0,
-            staking_start_time: None,
-            subscription_plan: None,
-            last_claim_time: None,
-            kappa_multiplier: BASE_KAPPA,
-        });
-
-        if account.staked_credits == 0 {
-            return Err("No staked credits to claim rewards from".to_string());
-        }
-
-        let staking_start = account.staking_start_time.ok_or("No staking start time")?;
-        let current_time = time();
-        
-        if current_time - staking_start < STAKING_PERIOD {
-            return Err("Staking period not completed".to_string());
-        }
-
-        // Calculate rewards based on staked amount and kappa
-        let reward = (account.staked_credits as f64 * account.kappa_multiplier * 0.1) as u64;
-        
-        // Update account
-        account.credit_balance += reward;
-        account.staked_credits = 0;
-        account.staking_start_time = None;
-        account.last_claim_time = Some(current_time);
-        
-        accounts.insert(key, account);
-        Ok(reward)
+pub fn get_all_token_grants() -> Vec<TokenGrant> {
+    crate::token_economy_types::TOKEN_GRANTS.with(|grants| {
+        grants.borrow()
+            .iter()
+            .map(|(_, grant)| grant.clone())
+            .collect()
     })
 }
 
-// Initialize emission policy
+pub fn get_token_grants_paginated(offset: u64, limit: usize) -> Vec<TokenGrant> {
+    crate::token_economy_types::TOKEN_GRANTS.with(|grants| {
+        grants.borrow()
+            .iter()
+            .skip(offset as usize)
+            .take(limit)
+            .map(|(_, grant)| grant.clone())
+            .collect()
+    })
+}
+
+pub fn get_token_grants_by_recipient(recipient: &str) -> Vec<TokenGrant> {
+    crate::token_economy_types::TOKEN_GRANTS.with(|grants| {
+        grants.borrow()
+            .iter()
+            .filter(|(_, grant)| grant.recipient == recipient)
+            .map(|(_, grant)| grant.clone())
+            .collect()
+    })
+}
+
+pub fn get_token_grants_by_status(status: &TokenGrantStatus) -> Vec<TokenGrant> {
+    crate::token_economy_types::TOKEN_GRANTS.with(|grants| {
+        grants.borrow()
+            .iter()
+            .filter(|(_, grant)| grant.status == *status)
+            .map(|(_, grant)| grant.clone())
+            .collect()
+    })
+}
+
+pub fn get_token_grants_count() -> u64 {
+    crate::token_economy_types::TOKEN_GRANTS.with(|grants| {
+        grants.borrow().len() as u64
+    })
+}
+
+// Activity Recording
+pub fn record_token_activity(activity: TokenActivity) -> Result<(), String> {
+    crate::token_economy_types::TOKEN_ACTIVITIES.with(|activities| {
+        let mut activities = activities.borrow_mut();
+        let index = activities.len();
+        activities.insert(index, activity);
+        Ok(())
+    })
+}
+
+pub fn record_credit_activity(activity: CreditActivity) -> Result<(), String> {
+    crate::token_economy_types::CREDIT_ACTIVITIES.with(|activities| {
+        let mut activities = activities.borrow_mut();
+        let index = activities.len();
+        activities.insert(index, activity);
+        Ok(())
+    })
+}
+
+// Query Methods
+pub fn get_account_token_info(principal_id: &str) -> Result<TokenInfo, String> {
+    let account = get_account(principal_id.to_string())
+        .ok_or_else(|| "Account not found".to_string())?;
+    Ok(account.token_info)
+}
+
+pub fn get_balance_summary(principal_id: String) -> (u64, u64, u64, u64) {
+    if let Some(account) = get_account(principal_id) {
+        (
+            account.get_token_balance(),
+            account.get_staked_credits(),
+            account.get_credit_balance(),
+            0 // unclaimed_balance is not part of TokenInfo
+        )
+    } else {
+        (0, 0, 0, 0)
+    }
+}
+
+// Activity Query Methods
+pub fn get_token_activities(principal_id: &str) -> Vec<TokenActivity> {
+    crate::token_economy_types::TOKEN_ACTIVITIES.with(|activities| {
+        activities.borrow()
+            .iter()
+            .filter(|(_, activity)| activity.from == principal_id || activity.to == principal_id)
+            .map(|(_, activity)| activity.clone())
+            .collect()
+    })
+}
+
+pub fn get_credit_activities(principal_id: &str) -> Vec<CreditActivity> {
+    crate::token_economy_types::CREDIT_ACTIVITIES.with(|activities| {
+        activities.borrow()
+            .iter()
+            .filter(|(_, activity)| activity.principal_id == principal_id)
+            .map(|(_, activity)| activity.clone())
+            .collect()
+    })
+}
+
+// Activity Statistics
+pub fn get_token_activity_statistics(principal_id: &str) -> (u64, u64, u64) {
+    let activities = get_token_activities(principal_id);
+    let total_count = activities.len() as u64;
+    let total_amount = activities.iter().map(|a| a.amount).sum();
+    let success_count = activities.iter()
+        .filter(|a| a.status == TransferStatus::Completed)
+        .count() as u64;
+    (total_count, total_amount, success_count)
+}
+
+pub fn get_credit_activity_statistics(principal_id: &str) -> (u64, u64, u64) {
+    let activities = get_credit_activities(principal_id);
+    let total_count = activities.len() as u64;
+    let total_amount = activities.iter().map(|a| a.amount).sum();
+    let success_count = activities.iter()
+        .filter(|a| a.status == TransferStatus::Completed)
+        .count() as u64;
+    (total_count, total_amount, success_count)
+}
+
+// Emission Policy Operations
 pub fn init_emission_policy() {
     let mut policy = EmissionPolicy {
         base_rate: DEFAULT_BASE_RATE,
@@ -265,7 +400,6 @@ pub fn init_emission_policy() {
     });
 }
 
-// Calculate token emission for an account
 pub fn calculate_emission(principal_id: &str) -> Result<u64, String> {
     let account = get_account(principal_id.to_string())
         .ok_or_else(|| "Account not found".to_string())?;
@@ -289,7 +423,6 @@ pub fn calculate_emission(principal_id: &str) -> Result<u64, String> {
     Ok(emission)
 }
 
-// Get emission policy
 pub fn get_emission_policy() -> Result<EmissionPolicy, String> {
     crate::token_economy_types::EMISSION_POLICY.with(|p| {
         p.borrow()
@@ -298,7 +431,6 @@ pub fn get_emission_policy() -> Result<EmissionPolicy, String> {
     })
 }
 
-// Update emission policy
 pub fn update_emission_policy(policy: EmissionPolicy) -> Result<(), String> {
     crate::token_economy_types::EMISSION_POLICY.with(|p| {
         p.borrow_mut().insert("default".to_string(), policy);
@@ -306,142 +438,7 @@ pub fn update_emission_policy(policy: EmissionPolicy) -> Result<(), String> {
     })
 }
 
-// Create token grant
-pub fn create_token_grant(grant: TokenGrant) -> Result<(), String> {
-    let key = TokenGrantKey {
-        recipient: grant.recipient.clone(),
-    };
-
-    crate::token_economy_types::TOKEN_GRANTS.with(|g| {
-        g.borrow_mut().insert(key, grant);
-        Ok(())
-    })
-}
-
-// Get token grant
-pub fn get_token_grant(recipient: &str) -> Result<TokenGrant, String> {
-    let key = TokenGrantKey {
-        recipient: recipient.to_string(),
-    };
-
-    crate::token_economy_types::TOKEN_GRANTS.with(|g| {
-        g.borrow()
-            .get(&key)
-            .ok_or_else(|| "Token grant not found".to_string())
-    })
-}
-
-// Claim vested tokens
-pub fn claim_vested_tokens(principal_id: &str) -> Result<u64, String> {
-    let grant = get_token_grant(principal_id)?;
-    let current_time = time();
-
-    if current_time < grant.start_time {
-        return Err("Vesting period has not started".to_string());
-    }
-
-    let elapsed_time = current_time - grant.start_time;
-    let vested_amount = if elapsed_time >= grant.vesting_period {
-        grant.amount - grant.claimed_amount
-    } else {
-        (grant.amount as f64 * (elapsed_time as f64 / grant.vesting_period as f64)) as u64 - grant.claimed_amount
-    };
-
-    if vested_amount == 0 {
-        return Err("No tokens available to claim".to_string());
-    }
-
-    // Update grant
-    let mut updated_grant = grant.clone();
-    updated_grant.claimed_amount += vested_amount;
-    create_token_grant(updated_grant)?;
-
-    // Update account balance
-    let mut account = get_account(principal_id.to_string())
-        .ok_or_else(|| "Account not found".to_string())?;
-    account.balance += vested_amount;
-    upsert_account(account)?;
-
-    // Record token activity
-    let activity = TokenActivity {
-        timestamp: current_time,
-        from: "system".to_string(),
-        to: principal_id.to_string(),
-        amount: vested_amount,
-        activity_type: TokenActivityType::Vest,
-        status: TransferStatus::Completed,
-        metadata: Some("Vested token claim".to_string()),
-    };
-    record_token_activity(activity)?;
-
-    Ok(vested_amount)
-}
-
-// Helper functions for recording activities
-pub fn record_token_activity(activity: TokenActivity) -> Result<(), String> {
-    crate::token_economy_types::TOKEN_ACTIVITIES.with(|activities| {
-        let mut activities = activities.borrow_mut();
-        let index = activities.len();
-        activities.insert(index, activity);
-        Ok(())
-    })
-}
-
-pub fn record_credit_activity(activity: CreditActivity) -> Result<(), String> {
-    crate::token_economy_types::CREDIT_ACTIVITIES.with(|activities| {
-        let mut activities = activities.borrow_mut();
-        let index = activities.len();
-        activities.insert(index, activity);
-        Ok(())
-    })
-}
-
-// Get all token grants
-pub fn get_all_token_grants() -> Vec<TokenGrant> {
-    crate::token_economy_types::TOKEN_GRANTS.with(|g| {
-        g.borrow().iter().map(|(_, grant)| grant.clone()).collect()
-    })
-}
-
-// Get account token information
-pub fn get_account_token_info(principal_id: &str) -> Result<(u64, u64, f64), String> {
-    let account = get_account(principal_id.to_string())
-        .ok_or_else(|| "Account not found".to_string())?;
-    let staked_credits = account.get_staked_credits();
-    let kappa_multiplier = account.get_kappa_multiplier();
-    let balance = account.balance;
-
-    Ok((balance, staked_credits, kappa_multiplier))
-}
-
-// Ledger Utility Tracker
-pub fn log_credit_usage(principal_id: String, amount: u64, service: String, metadata: Option<String>) -> Result<(), String> {
-    let activity = CreditActivity {
-        timestamp: time(),
-        principal_id: principal_id.clone(),
-        amount,
-        activity_type: CreditActivityType::Spend,
-        status: TransferStatus::Completed,
-        metadata: Some(format!("Credit usage for service: {} - {}", service, metadata.unwrap_or_default())),
-    };
-    record_credit_activity(activity)
-}
-
-pub fn log_credit_utility(principal_id: String, amount: u64, service: String, metadata: Option<String>) -> Result<(), String> {
-    log_credit_usage(principal_id, amount, service, metadata)
-}
-
-// Query methods for TokenActivity
-pub fn get_token_activities(principal_id: &str) -> Vec<TokenActivity> {
-    crate::token_economy_types::TOKEN_ACTIVITIES.with(|activities| {
-        activities.borrow()
-            .iter()
-            .filter(|(_, activity)| activity.from == principal_id || activity.to == principal_id)
-            .map(|(_, activity)| activity.clone())
-            .collect()
-    })
-}
-
+// Activity Query Methods
 pub fn get_token_activities_paginated(principal_id: &str, offset: u64, limit: usize) -> Vec<TokenActivity> {
     crate::token_economy_types::TOKEN_ACTIVITIES.with(|activities| {
         activities.borrow()
@@ -476,17 +473,6 @@ pub fn get_token_activities_by_time_period(principal_id: &str, start_time: u64, 
                 activity.timestamp >= start_time && 
                 activity.timestamp <= end_time
             )
-            .map(|(_, activity)| activity.clone())
-            .collect()
-    })
-}
-
-// Query methods for CreditActivity
-pub fn get_credit_activities(principal_id: &str) -> Vec<CreditActivity> {
-    crate::token_economy_types::CREDIT_ACTIVITIES.with(|activities| {
-        activities.borrow()
-            .iter()
-            .filter(|(_, activity)| activity.principal_id == principal_id)
             .map(|(_, activity)| activity.clone())
             .collect()
     })
@@ -531,107 +517,15 @@ pub fn get_credit_activities_by_time_period(principal_id: &str, start_time: u64,
     })
 }
 
-// Statistics methods
-pub fn get_token_activity_statistics(principal_id: &str) -> (u64, u64, u64) {
-    let activities = get_token_activities(principal_id);
-    let total_count = activities.len() as u64;
-    let total_amount = activities.iter().map(|a| a.amount).sum();
-    let success_count = activities.iter()
-        .filter(|a| matches!(a.status, TransferStatus::Completed))
-        .count() as u64;
-    
-    (total_count, total_amount, success_count)
-}
-
-pub fn get_credit_activity_statistics(principal_id: &str) -> (u64, u64, u64) {
-    let activities = get_credit_activities(principal_id);
-    let total_count = activities.len() as u64;
-    let total_amount = activities.iter().map(|a| a.amount).sum();
-    let success_count = activities.iter()
-        .filter(|a| matches!(a.status, TransferStatus::Completed))
-        .count() as u64;
-    
-    (total_count, total_amount, success_count)
-}
-
-/// Get account information
-pub fn get_account_info(principal_id: String) -> Option<TokenAccount> {
-    TOKEN_ACCOUNTS.with(|accounts| {
-        let accounts = accounts.borrow();
-        let key = TokenAccountKey { principal_id };
-        accounts.get(&key)
-    })
-}
-
-/// Add a new account
-pub fn add_account(principal_id: String, symbol: String) -> Result<TokenAccount, String> {
-    TOKEN_ACCOUNTS.with(|accounts| {
-        let mut accounts = accounts.borrow_mut();
-        let key = TokenAccountKey { principal_id: principal_id.clone() };
-        
-        if accounts.contains_key(&key) {
-            return Err("Account already exists".to_string());
-        }
-
-        let account = TokenAccount {
-            principal_id: principal_id.clone(),
-            aio_balance: 0,
-            credit_balance: 0,
-            staked_credits: 0,
-            staking_start_time: None,
-            subscription_plan: None,
-            last_claim_time: None,
-            kappa_multiplier: BASE_KAPPA,
-        };
-        
-        accounts.insert(key, account.clone());
-        Ok(account)
-    })
-}
-
-/// Get all accounts
-pub fn get_all_accounts() -> Vec<TokenAccount> {
-    TOKEN_ACCOUNTS.with(|accounts| {
-        let accounts = accounts.borrow();
-        accounts.iter().map(|(_, account)| account).collect()
-    })
-}
-
-/// Get accounts with pagination
-pub fn get_accounts_paginated(offset: u64, limit: usize) -> Vec<TokenAccount> {
-    TOKEN_ACCOUNTS.with(|accounts| {
-        let accounts = accounts.borrow();
-        accounts.iter()
-            .skip(offset as usize)
-            .take(limit)
-            .map(|(_, account)| account)
-            .collect()
-    })
-}
-
-/// Delete an account
-pub fn delete_account(principal_id: String) -> Result<(), String> {
-    TOKEN_ACCOUNTS.with(|accounts| {
-        let mut accounts = accounts.borrow_mut();
-        let key = TokenAccountKey { principal_id };
-        if accounts.remove(&key).is_some() {
-            Ok(())
-        } else {
-            Err("Account not found".to_string())
-        }
-    })
-}
-
-/// Get balance summary
-pub fn get_balance_summary(principal_id: String) -> (u64, u64, u64, u64) {
-    if let Some(account) = get_account_info(principal_id) {
-        (
-            account.aio_balance,
-            account.staked_credits,
-            account.credit_balance,
-            0 // unclaimed_balance is not part of TokenAccount
-        )
-    } else {
-        (0, 0, 0, 0)
-    }
+// Credit Usage
+pub fn log_credit_usage(principal_id: String, amount: u64, service: String, metadata: Option<String>) -> Result<(), String> {
+    let activity = CreditActivity {
+        timestamp: time(),
+        principal_id: principal_id.clone(),
+        amount,
+        activity_type: CreditActivityType::Spend,
+        status: TransferStatus::Completed,
+        metadata: Some(format!("Credit usage for service: {} - {}", service, metadata.unwrap_or_default())),
+    };
+    record_credit_activity(activity)
 } 
