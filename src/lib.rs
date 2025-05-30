@@ -21,7 +21,7 @@ use token_economy_types::{
     TokenActivity, TokenActivityType,
     CreditActivity, CreditActivityType,
     TransferStatus as TokenTransferStatus,
-    AccountInfo, TokenGrantStatus
+    AccountInfo, TokenGrantStatus, GrantPolicy
 };
 use token_economy::{record_token_activity, record_credit_activity};
 
@@ -541,8 +541,8 @@ fn get_account_info(principal_id: String) -> Option<AccountInfo> {
 }
 
 #[ic_cdk::update]
-fn add_account(principal_id: String, symbol: String) -> Result<AccountInfo, String> {
-    ic_cdk::println!("CALL[add_account] Input: principal_id={}, symbol={}", principal_id, symbol);
+fn add_account(principal_id: String) -> Result<AccountInfo, String> {
+    ic_cdk::println!("CALL[add_account] Input: principal_id={}", principal_id);
     let result = token_economy::create_account(principal_id);
     ic_cdk::println!("CALL[add_account] Output: {:?}", result);
     result
@@ -661,16 +661,17 @@ fn update_emission_policy(policy: EmissionPolicy) -> Result<(), String> {
     token_economy::update_emission_policy(policy)
 }
 
-#[ic_cdk::update]
-fn create_token_grant(grant: TokenGrant) -> Result<(), String> {
-    token_economy::create_token_grant(grant)
+
+#[ic_cdk::query]
+fn get_token_grant(recipient: String) -> bool {
+    token_economy::get_token_grant(&recipient).is_some()
 }
 
 #[ic_cdk::query]
-fn get_token_grant(recipient: String) -> Result<TokenGrant, String> {
-    token_economy::get_token_grant(&recipient)
-        .ok_or_else(|| "No grant found for this recipient".to_string())
+fn check_is_newuser(principal_id: String) -> bool {
+    token_economy::get_token_grant(&principal_id).is_none()
 }
+
 
 #[ic_cdk::query]
 fn get_all_token_grants() -> Vec<TokenGrant> {
@@ -802,5 +803,44 @@ fn transfer_token(from: String, to: String, amount: u64) -> Result<AccountInfo, 
     let result = token_economy::transfer_tokens(from, to, amount);
     println!("Output: transfer_token - result: {:?}", result);
     result
+}
+
+#[ic_cdk::update]
+fn init_grant_policy(grant_policy: Option<GrantPolicy>) {
+    token_economy::init_grant_policy(grant_policy);
+}
+
+#[ic_cdk::update]
+fn create_and_claim_newuser_grant(principal_id: String) -> Result<u64, String> {
+    println!("Input: create_and_claim_newuser_grant - principal_id: {}", principal_id);
+    
+    // Step 1: Check if grant exists and its status
+    if let Some(grant) = token_economy::get_token_grant(&principal_id) {
+        match grant.status {
+            TokenGrantStatus::Active => {
+                // Step 3: If grant is active, claim it
+                let claim_result = token_economy::claim_grant(&principal_id)?;
+                println!("Output: create_and_claim_newuser_grant - claimed amount: {}", claim_result);
+                Ok(claim_result)
+            },
+            _ => Err(format!("Grant exists but is not active. Current status: {:?}", grant.status))
+        }
+    } else {
+        // Step 2: No grant exists, create a new one
+        let new_grant = TokenGrant {
+            recipient: principal_id.clone(),
+            amount: 1000, // Default amount for new users
+            start_time: ic_cdk::api::time() / 1_000_000,
+            claimed_amount: 0,
+            status: TokenGrantStatus::Active,
+        };
+        
+        token_economy::create_token_grant(new_grant)?;
+        
+        // Step 3: Claim the newly created grant
+        let claim_result = token_economy::claim_grant(&principal_id)?;
+        println!("Output: create_and_claim_newuser_grant - claimed amount: {}", claim_result);
+        Ok(claim_result)
+    }
 }
 

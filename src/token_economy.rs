@@ -399,6 +399,29 @@ pub fn init_emission_policy() {
         p.borrow_mut().insert("default".to_string(), policy);
     });
 }
+pub fn init_grant_policy(grant_policy: Option<GrantPolicy>) {
+    let policy = match grant_policy {
+        Some(policy) => policy,
+        None => GrantPolicy {
+            grant_amount: 1000, // 1000 credits for new users
+            grant_action: GrantAction::NewUser,
+            grant_duration: 0, //can be claim once
+        }
+    };
+
+    crate::token_economy_types::GRANT_POLICIES.with(|p| {
+        let mut policies = p.borrow_mut();
+        // Check if policy with same grant_action exists
+        if policies.contains_key(&policy.grant_action) {
+            // Update existing policy
+            policies.insert(policy.grant_action.clone(), policy);
+        } else {
+            // Insert new policy
+            policies.insert(policy.grant_action.clone(), policy);
+        }
+    });
+}
+
 
 pub fn calculate_emission(principal_id: &str) -> Result<u64, String> {
     let account = get_account(principal_id.to_string())

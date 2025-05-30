@@ -68,6 +68,20 @@ pub struct EmissionPolicy {
     pub last_update_time: u64,
 }
 
+#[derive(CandidType, Serialize, Deserialize, Clone, Debug)]
+pub struct GrantPolicy {
+    pub grant_amount: u64,
+    pub grant_action: GrantAction,
+    pub grant_duration: u64,
+
+}
+
+#[derive(CandidType, Serialize, Deserialize, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum GrantAction {
+    NewUser,
+    NewDeveloper
+}
+
 #[derive(CandidType, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub enum TokenGrantStatus {
     Pending,
@@ -217,6 +231,32 @@ impl ic_stable_structures::Storable for CreditActivity {
     const BOUND: Bound = Bound::Bounded { max_size: 1024 * 32, is_fixed_size: false };
 }
 
+// Implement Storable for GrantAction
+impl ic_stable_structures::Storable for GrantAction {
+    fn to_bytes(&self) -> std::borrow::Cow<[u8]> {
+        Cow::Owned(Encode!(self).expect("Failed to encode GrantAction"))
+    }
+
+    fn from_bytes(bytes: std::borrow::Cow<[u8]>) -> Self {
+        Decode!(bytes.as_ref(), Self).expect("Failed to decode GrantAction")
+    }
+
+    const BOUND: Bound = Bound::Bounded { max_size: 1024, is_fixed_size: false };
+}
+
+// Implement Storable for GrantPolicy
+impl ic_stable_structures::Storable for GrantPolicy {
+    fn to_bytes(&self) -> std::borrow::Cow<[u8]> {
+        Cow::Owned(Encode!(self).expect("Failed to encode GrantPolicy"))
+    }
+
+    fn from_bytes(bytes: std::borrow::Cow<[u8]>) -> Self {
+        Decode!(bytes.as_ref(), Self).expect("Failed to decode GrantPolicy")
+    }
+
+    const BOUND: Bound = Bound::Bounded { max_size: 1024 * 32, is_fixed_size: false };
+}
+
 // Initialize stable memory storage
 thread_local! {
     static MEMORY_MANAGER: RefCell<MemoryManager<DefaultMemoryImpl>> = 
@@ -243,6 +283,12 @@ thread_local! {
     pub static CREDIT_ACTIVITIES: RefCell<StableBTreeMap<u64, CreditActivity, Memory>> = RefCell::new(
         StableBTreeMap::init(
             MEMORY_MANAGER.with(|m| m.borrow().get(MemoryId::new(25)))
+        )
+    );
+
+    pub static GRANT_POLICIES: RefCell<StableBTreeMap<GrantAction, GrantPolicy, Memory>> = RefCell::new(
+        StableBTreeMap::init(
+            MEMORY_MANAGER.with(|m| m.borrow().get(MemoryId::new(26)))
         )
     );
 }

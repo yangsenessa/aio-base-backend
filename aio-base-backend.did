@@ -245,6 +245,17 @@ type EmissionPolicy = record {
   last_update_time: nat64;
 };
 
+type GrantAction = variant {
+  NewUser;
+  NewDeveloper;
+};
+
+type GrantPolicy = record {
+  grant_amount: nat64;
+  grant_action: GrantAction;
+  grant_duration: nat64;
+};
+
 service : {
   // Basic API
   "greet": (text) -> (text) query;
@@ -330,7 +341,7 @@ service : {
   "get_emission_policy": () -> (variant { Ok: EmissionPolicy; Err: text }) query;
   "update_emission_policy": (EmissionPolicy) -> (variant { Ok; Err: text });
   "create_token_grant": (TokenGrant) -> (variant { Ok; Err: text });
-  "get_token_grant": (text) -> (variant { Ok: TokenGrant; Err: text }) query;
+  "get_token_grant": (text) -> (bool) query;
   "claim_grant": (text) -> (variant { Ok: nat64; Err: text });
   "get_all_token_grants": () -> (vec TokenGrant) query;
   "get_token_grants_paginated": (nat64, nat64) -> (vec TokenGrant) query;
@@ -357,4 +368,9 @@ service : {
   "use_credit": (text, nat64, text, opt text) -> (variant { Ok: AccountInfo; Err: text });
   "grant_token": (TokenGrant) -> (variant { Ok; Err: text });
   "transfer_token": (text, text, nat64) -> (variant { Ok: AccountInfo; Err: text });
+
+  // Grant Policy API
+  "init_grant_policy": (opt GrantPolicy) -> ();
+  "check_is_newuser": (text) -> (bool) query;
+  "create_and_claim_newuser_grant": (text) -> (variant { Ok: nat64; Err: text });
 }
