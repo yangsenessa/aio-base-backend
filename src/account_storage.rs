@@ -60,12 +60,7 @@ pub fn upsert_account(account: AccountInfo) -> Result<AccountInfo, String> {
         let mut accounts = accounts.borrow_mut();
         let key = AccountKey { principal_id: account.principal_id.clone() };
         
-        // Check if account already exists
-        if let Some(existing_account) = accounts.get(&key) {
-            return Ok(existing_account.clone());
-        }
-        
-        // Only insert if account doesn't exist
+        // Insert will update if key exists, or insert if it doesn't
         accounts.insert(key, account.clone());
         Ok(account)
     })

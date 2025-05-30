@@ -5,7 +5,8 @@ use std::cell::RefCell;
 use crate::token_economy_types::{
     EmissionPolicy, SubscriptionPlan, TokenGrant, TokenGrantKey,
     TokenActivity, TokenActivityType, CreditActivity, CreditActivityType,
-    TransferStatus, AccountInfo, TokenInfo, TokenGrantStatus
+    TransferStatus, AccountInfo, TokenInfo, TokenGrantStatus,
+    NewMcpGrant, NewMcpGrantKey, NEWMCP_GRANTS
 };
 use icrc_ledger_types::{icrc1::account::Account, icrc1::transfer::{TransferError, BlockIndex}};
 use crate::trace_storage::get_trace;
@@ -17,6 +18,7 @@ use ic_stable_structures::storable::Bound;
 use ic_stable_structures::DefaultMemoryImpl;
 use std::borrow::Cow;
 use serde::{Serialize, Deserialize};
+use crate::mcp_asset_types;
 
 // Re-export NumTokens for public use
 pub use icrc_ledger_types::icrc1::transfer::NumTokens;
@@ -62,7 +64,7 @@ pub fn update_account_balance(principal_id: String, token_amount: i64, credit_am
 }
 
 // Credit Operations
-pub fn stack_credits(principal_id: String, amount: u64) -> Result<AccountInfo, String> {
+pub fn stack_credits(principal_id: String, mcp_name:String ,amount: u64) -> Result<AccountInfo, String> {
     if amount < MIN_STAKE_AMOUNT {
         return Err(format!("Minimum stake amount is {}", MIN_STAKE_AMOUNT));
     }
@@ -74,24 +76,41 @@ pub fn stack_credits(principal_id: String, amount: u64) -> Result<AccountInfo, S
         return Err("Insufficient credit balance".to_string());
     }
 
+    // Store original account state for potential rollback
+    let original_account = account.clone();
+
     account.token_info.credit_balance -= amount;
     account.token_info.staked_credits += amount;
     account.updated_at = time();
     
     let result = upsert_account(account.clone())?;
 
-    // Record credit activity
-    let activity = CreditActivity {
-        timestamp: time(),
-        principal_id: principal_id.clone(),
-        amount,
-        activity_type: CreditActivityType::Stack,
-        status: TransferStatus::Completed,
-        metadata: Some("Credit stacking".to_string()),
-    };
-    record_credit_activity(activity)?;
+    // Try to create stack record
+    match mcp_asset_types::stack_mcp(
+        mcp_name,
+        principal_id.clone(),
+        amount
+    ) {
+        Ok(_) => {
+            // Record credit activity
+            let activity = CreditActivity {
+                timestamp: time(),
+                principal_id: principal_id.clone(),
+                amount,
+                activity_type: CreditActivityType::Stack,
+                status: TransferStatus::Completed,
+                metadata: Some("Credit stacking".to_string()),
+            };
+            record_credit_activity(activity)?;
 
-    Ok(result)
+            Ok(result)
+        },
+        Err(e) => {
+            // Rollback account changes
+            upsert_account(original_account)?;
+            Err(format!("Failed to create stack record: {}", e))
+        }
+    }
 }
 
 pub fn unstack_credits(principal_id: String, amount: u64) -> Result<AccountInfo, String> {
@@ -188,7 +207,7 @@ pub fn use_credits(principal_id: String, amount: u64, service: String, metadata:
 
 // Token Grant Operations
 pub fn create_token_grant(grant: TokenGrant) -> Result<(), String> {
-    crate::token_economy_types::TOKEN_GRANTS.with(|grants| {
+    crate::token_economy_types::NEWUSER_GRANTS.with(|grants| {
         let key = TokenGrantKey {
             recipient: grant.recipient.clone(),
         };
@@ -227,6 +246,7 @@ pub fn claim_grant(principal_id: &str) -> Result<u64, String> {
     let mut account = account.clone();
     account.token_info.credit_balance += remaining_amount;
     account.updated_at = current_time;
+    ic_cdk::println!("Account updated: {:?}", account);
     upsert_account(account)?;
 
     // Record credit activity
@@ -238,13 +258,14 @@ pub fn claim_grant(principal_id: &str) -> Result<u64, String> {
         status: TransferStatus::Completed,
         metadata: Some("Grant credit claim".to_string()),
     };
+    ic_cdk::println!("Record CreditActivity: {:?}", activity);
     record_credit_activity(activity)?;
 
     Ok(remaining_amount)
 }
 
 pub fn get_token_grant(recipient: &str) -> Option<TokenGrant> {
-    crate::token_economy_types::TOKEN_GRANTS.with(|grants| {
+    crate::token_economy_types::NEWUSER_GRANTS.with(|grants| {
         let key = TokenGrantKey {
             recipient: recipient.to_string(),
         };
@@ -253,7 +274,7 @@ pub fn get_token_grant(recipient: &str) -> Option<TokenGrant> {
 }
 
 pub fn get_all_token_grants() -> Vec<TokenGrant> {
-    crate::token_economy_types::TOKEN_GRANTS.with(|grants| {
+    crate::token_economy_types::NEWUSER_GRANTS.with(|grants| {
         grants.borrow()
             .iter()
             .map(|(_, grant)| grant.clone())
@@ -262,7 +283,7 @@ pub fn get_all_token_grants() -> Vec<TokenGrant> {
 }
 
 pub fn get_token_grants_paginated(offset: u64, limit: usize) -> Vec<TokenGrant> {
-    crate::token_economy_types::TOKEN_GRANTS.with(|grants| {
+    crate::token_economy_types::NEWUSER_GRANTS.with(|grants| {
         grants.borrow()
             .iter()
             .skip(offset as usize)
@@ -273,7 +294,7 @@ pub fn get_token_grants_paginated(offset: u64, limit: usize) -> Vec<TokenGrant> 
 }
 
 pub fn get_token_grants_by_recipient(recipient: &str) -> Vec<TokenGrant> {
-    crate::token_economy_types::TOKEN_GRANTS.with(|grants| {
+    crate::token_economy_types::NEWUSER_GRANTS.with(|grants| {
         grants.borrow()
             .iter()
             .filter(|(_, grant)| grant.recipient == recipient)
@@ -283,7 +304,7 @@ pub fn get_token_grants_by_recipient(recipient: &str) -> Vec<TokenGrant> {
 }
 
 pub fn get_token_grants_by_status(status: &TokenGrantStatus) -> Vec<TokenGrant> {
-    crate::token_economy_types::TOKEN_GRANTS.with(|grants| {
+    crate::token_economy_types::NEWUSER_GRANTS.with(|grants| {
         grants.borrow()
             .iter()
             .filter(|(_, grant)| grant.status == *status)
@@ -293,7 +314,7 @@ pub fn get_token_grants_by_status(status: &TokenGrantStatus) -> Vec<TokenGrant> 
 }
 
 pub fn get_token_grants_count() -> u64 {
-    crate::token_economy_types::TOKEN_GRANTS.with(|grants| {
+    crate::token_economy_types::NEWUSER_GRANTS.with(|grants| {
         grants.borrow().len() as u64
     })
 }
@@ -400,26 +421,29 @@ pub fn init_emission_policy() {
     });
 }
 pub fn init_grant_policy(grant_policy: Option<GrantPolicy>) {
-    let policy = match grant_policy {
-        Some(policy) => policy,
-        None => GrantPolicy {
-            grant_amount: 1000, // 1000 credits for new users
-            grant_action: GrantAction::NewUser,
-            grant_duration: 0, //can be claim once
-        }
+    let policies = match grant_policy {
+        Some(policy) => vec![policy],
+        None => vec![
+            GrantPolicy {
+                grant_amount: 1000, // 1000 credits for new users
+                grant_action: GrantAction::NewUser,
+                grant_duration: 0, //can be claimed once
+            },
+            GrantPolicy {
+                grant_amount: 10000, // 10000 credits for new mcp registered
+                grant_action: GrantAction::NewMcp,
+                grant_duration: 0, // can be claimed once
+            }
+        ]
     };
 
-    crate::token_economy_types::GRANT_POLICIES.with(|p| {
-        let mut policies = p.borrow_mut();
-        // Check if policy with same grant_action exists
-        if policies.contains_key(&policy.grant_action) {
-            // Update existing policy
+    // Initialize all policies
+    for policy in policies {
+        GRANT_POLICIES.with(|policies| {
+            let mut policies = policies.borrow_mut();
             policies.insert(policy.grant_action.clone(), policy);
-        } else {
-            // Insert new policy
-            policies.insert(policy.grant_action.clone(), policy);
-        }
-    });
+        });
+    }
 }
 
 
@@ -551,4 +575,188 @@ pub fn log_credit_usage(principal_id: String, amount: u64, service: String, meta
         metadata: Some(format!("Credit usage for service: {} - {}", service, metadata.unwrap_or_default())),
     };
     record_credit_activity(activity)
+}
+
+// New MCP Grant Operations
+pub fn create_mcp_grant(grant: NewMcpGrant) -> Result<(), String> {
+    crate::token_economy_types::NEWMCP_GRANTS.with(|grants| {
+        let key = NewMcpGrantKey {
+            recipient: grant.recipient.clone(),
+            mcp_name: grant.mcp_name.clone(),
+        };
+        grants.borrow_mut().insert(key, grant);
+        Ok(())
+    })
+}
+
+pub fn claim_mcp_grant(principal_id: &str) -> Result<u64, String> {
+    // First check if the account exists
+    let account = get_account(principal_id.to_string())
+        .ok_or_else(|| "Account not found".to_string())?;
+
+    // Get all MCP grants for this principal
+    let grants = get_mcp_grants_by_recipient(principal_id);
+    
+    // Filter for active grants
+    let active_grants: Vec<NewMcpGrant> = grants.into_iter()
+        .filter(|grant| grant.status == TokenGrantStatus::Active)
+        .collect();
+
+    if active_grants.is_empty() {
+        return Err("No active MCP grants found for this account".to_string());
+    }
+
+    let current_time = time();
+    let mut total_claimed = 0;
+
+    // Process each active grant
+    for grant in active_grants {
+        let remaining_amount = grant.amount - grant.claimed_amount;
+        if remaining_amount == 0 {
+            continue;
+        }
+
+        // Update grant status to completed
+        let mut updated_grant = grant.clone();
+        updated_grant.claimed_amount += remaining_amount;
+        updated_grant.status = TokenGrantStatus::Completed;
+        create_mcp_grant(updated_grant)?;
+
+        total_claimed += remaining_amount;
+    }
+
+    if total_claimed == 0 {
+        return Err("No credits available to claim from active grants".to_string());
+    }
+
+    // Update account credit balance
+    let mut account = account.clone();
+    account.token_info.credit_balance += total_claimed;
+    account.updated_at = current_time;
+    upsert_account(account)?;
+
+    // Record credit activity
+    let activity = CreditActivity {
+        timestamp: current_time,
+        principal_id: principal_id.to_string(),
+        amount: total_claimed,
+        activity_type: CreditActivityType::Earn,
+        status: TransferStatus::Completed,
+        metadata: Some("MCP grant credit claim for all active grants".to_string()),
+    };
+    record_credit_activity(activity)?;
+
+    Ok(total_claimed)
+}
+
+pub fn get_mcp_grant(recipient: &str, mcp_name: &str) -> Option<NewMcpGrant> {
+    crate::token_economy_types::NEWMCP_GRANTS.with(|grants| {
+        let key = NewMcpGrantKey {
+            recipient: recipient.to_string(),
+            mcp_name: mcp_name.to_string(),
+        };
+        grants.borrow().get(&key).map(|grant| grant.clone())
+    })
+}
+
+pub fn get_all_mcp_grants() -> Vec<NewMcpGrant> {
+    crate::token_economy_types::NEWMCP_GRANTS.with(|grants| {
+        grants.borrow()
+            .iter()
+            .map(|(_, grant)| grant.clone())
+            .collect()
+    })
+}
+
+pub fn get_mcp_grants_paginated(offset: u64, limit: usize) -> Vec<NewMcpGrant> {
+    crate::token_economy_types::NEWMCP_GRANTS.with(|grants| {
+        grants.borrow()
+            .iter()
+            .skip(offset as usize)
+            .take(limit)
+            .map(|(_, grant)| grant.clone())
+            .collect()
+    })
+}
+
+pub fn get_mcp_grants_by_recipient(recipient: &str) -> Vec<NewMcpGrant> {
+    crate::token_economy_types::NEWMCP_GRANTS.with(|grants| {
+        grants.borrow()
+            .iter()
+            .filter(|(_, grant)| grant.recipient == recipient)
+            .map(|(_, grant)| grant.clone())
+            .collect()
+    })
+}
+
+pub fn get_mcp_grants_by_mcp(mcp_name: &str) -> Vec<NewMcpGrant> {
+    crate::token_economy_types::NEWMCP_GRANTS.with(|grants| {
+        grants.borrow()
+            .iter()
+            .filter(|(_, grant)| grant.mcp_name == mcp_name)
+            .map(|(_, grant)| grant.clone())
+            .collect()
+    })
+}
+
+pub fn get_mcp_grants_by_status(status: &TokenGrantStatus) -> Vec<NewMcpGrant> {
+    crate::token_economy_types::NEWMCP_GRANTS.with(|grants| {
+        grants.borrow()
+            .iter()
+            .filter(|(_, grant)| grant.status == *status)
+            .map(|(_, grant)| grant.clone())
+            .collect()
+    })
+}
+
+pub fn get_mcp_grants_count() -> u64 {
+    crate::token_economy_types::NEWMCP_GRANTS.with(|grants| {
+        grants.borrow().len() as u64
+    })
+}
+
+pub fn claim_mcp_grant_with_mcpname(principal_id: &str, mcp_name: &str) -> Result<u64, String> {
+    // First check if the account exists
+    let account = get_account(principal_id.to_string())
+        .ok_or_else(|| "Account not found".to_string())?;
+
+    // Get the specific MCP grant
+    let grant = get_mcp_grant(principal_id, mcp_name)
+        .ok_or_else(|| format!("No MCP grant found for account {} and MCP {}", principal_id, mcp_name))?;
+
+    if grant.status != TokenGrantStatus::Active {
+        return Err("Grant is not active".to_string());
+    }
+
+    let remaining_amount = grant.amount - grant.claimed_amount;
+    if remaining_amount == 0 {
+        return Err("No credits available to claim from this grant".to_string());
+    }
+
+    let current_time = time();
+
+    // Update grant status to completed
+    let mut updated_grant = grant.clone();
+    updated_grant.claimed_amount += remaining_amount;
+    updated_grant.status = TokenGrantStatus::Completed;
+    create_mcp_grant(updated_grant)?;
+
+    // Update account credit balance
+    let mut account = account.clone();
+    account.token_info.credit_balance += remaining_amount;
+    account.updated_at = current_time;
+    upsert_account(account)?;
+
+    // Record credit activity
+    let activity = CreditActivity {
+        timestamp: current_time,
+        principal_id: principal_id.to_string(),
+        amount: remaining_amount,
+        activity_type: CreditActivityType::Earn,
+        status: TransferStatus::Completed,
+        metadata: Some(format!("MCP grant credit claim for MCP: {}", mcp_name)),
+    };
+    record_credit_activity(activity)?;
+
+    Ok(remaining_amount)
 } 

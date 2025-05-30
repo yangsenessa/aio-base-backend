@@ -256,6 +256,15 @@ type GrantPolicy = record {
   grant_duration: nat64;
 };
 
+type NewMcpGrant = record {
+  recipient: text;
+  amount: nat64;
+  start_time: nat64;
+  claimed_amount: nat64;
+  mcp_name: text;
+  status: TokenGrantStatus;
+};
+
 service : {
   // Basic API
   "greet": (text) -> (text) query;
@@ -318,7 +327,7 @@ service : {
   "get_all_accounts": () -> (vec AccountInfo) query;
   "get_accounts_paginated": (nat64, nat64) -> (vec AccountInfo) query;
   "delete_account": (text) -> (variant { Ok; Err: text });
-  "stack_credit": (text, nat64) -> (variant { Ok: AccountInfo; Err: text });
+  "stack_credit": (text,text, nat64) -> (variant { Ok: AccountInfo; Err: text });
   "unstack_credit": (text, nat64) -> (variant { Ok: AccountInfo; Err: text });
   "claim_token": (text, nat64) -> (variant { Ok: AccountInfo; Err: text });
   "add_token_balance": (text, nat64) -> (variant { Ok: AccountInfo; Err: text });
@@ -373,4 +382,16 @@ service : {
   "init_grant_policy": (opt GrantPolicy) -> ();
   "check_is_newuser": (text) -> (bool) query;
   "create_and_claim_newuser_grant": (text) -> (variant { Ok: nat64; Err: text });
+
+  // MCP Grant API
+  "create_mcp_grant": (NewMcpGrant) -> (variant { Ok; Err: text });
+  "claim_mcp_grant": (text, text) -> (variant { Ok: nat64; Err: text });
+  "get_mcp_grant": (text, text) -> (opt NewMcpGrant) query;
+  "get_all_mcp_grants": () -> (vec NewMcpGrant) query;
+  "get_mcp_grants_paginated": (nat64, nat64) -> (vec NewMcpGrant) query;
+  "get_mcp_grants_by_recipient": (text) -> (vec NewMcpGrant) query;
+  "get_mcp_grants_by_mcp": (text) -> (vec NewMcpGrant) query;
+  "get_mcp_grants_by_status": (TokenGrantStatus) -> (vec NewMcpGrant) query;
+  "get_mcp_grants_count": () -> (nat64) query;
+  "create_and_claim_newmcp_grant": (text, text) -> (variant { Ok: nat64; Err: text });
 }

@@ -79,7 +79,7 @@ pub struct GrantPolicy {
 #[derive(CandidType, Serialize, Deserialize, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum GrantAction {
     NewUser,
-    NewDeveloper
+    NewMcp
 }
 
 #[derive(CandidType, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
@@ -97,6 +97,21 @@ pub struct TokenGrant {
     pub start_time: u64,
     pub claimed_amount: u64,
     pub status: TokenGrantStatus,
+}
+#[derive(CandidType, Serialize, Deserialize, Clone, Debug)]
+pub struct NewMcpGrant {
+    pub recipient: String,
+    pub amount: u64,
+    pub start_time: u64,
+    pub claimed_amount: u64,
+    pub mcp_name:String,
+    pub status: TokenGrantStatus,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct NewMcpGrantKey {
+    pub recipient: String,
+    pub mcp_name:String
 }
 
 #[derive(CandidType, Serialize, Deserialize, Clone, Debug)]
@@ -257,6 +272,33 @@ impl ic_stable_structures::Storable for GrantPolicy {
     const BOUND: Bound = Bound::Bounded { max_size: 1024 * 32, is_fixed_size: false };
 }
 
+// Implement Storable for NewMcpGrant
+impl ic_stable_structures::Storable for NewMcpGrant {
+    fn to_bytes(&self) -> std::borrow::Cow<[u8]> {
+        Cow::Owned(Encode!(self).expect("Failed to encode NewMcpGrant"))
+    }
+
+    fn from_bytes(bytes: std::borrow::Cow<[u8]>) -> Self {
+        Decode!(bytes.as_ref(), Self).expect("Failed to decode NewMcpGrant")
+    }
+
+    const BOUND: Bound = Bound::Bounded { max_size: 1024 * 32, is_fixed_size: false };
+}
+
+// Implement Storable for NewMcpGrantKey
+impl ic_stable_structures::Storable for NewMcpGrantKey {
+    fn to_bytes(&self) -> std::borrow::Cow<[u8]> {
+        Cow::Owned(Encode!(&self.recipient, &self.mcp_name).expect("Failed to encode NewMcpGrantKey"))
+    }
+
+    fn from_bytes(bytes: std::borrow::Cow<[u8]>) -> Self {
+        let (recipient, mcp_name) = Decode!(bytes.as_ref(), (String, String)).expect("Failed to decode NewMcpGrantKey");
+        Self { recipient, mcp_name }
+    }
+
+    const BOUND: Bound = Bound::Bounded { max_size: 1024, is_fixed_size: false };
+}
+
 // Initialize stable memory storage
 thread_local! {
     static MEMORY_MANAGER: RefCell<MemoryManager<DefaultMemoryImpl>> = 
@@ -268,27 +310,33 @@ thread_local! {
         )
     );
     
-    pub static TOKEN_GRANTS: RefCell<StableBTreeMap<TokenGrantKey, TokenGrant, Memory>> = RefCell::new(
+    pub static NEWUSER_GRANTS: RefCell<StableBTreeMap<TokenGrantKey, TokenGrant, Memory>> = RefCell::new(
         StableBTreeMap::init(
             MEMORY_MANAGER.with(|m| m.borrow().get(MemoryId::new(24)))
         )
     );
 
-    pub static TOKEN_ACTIVITIES: RefCell<StableBTreeMap<u64, TokenActivity, Memory>> = RefCell::new(
-        StableBTreeMap::init(
-            MEMORY_MANAGER.with(|m| m.borrow().get(MemoryId::new(24)))
-        )
-    );
-
-    pub static CREDIT_ACTIVITIES: RefCell<StableBTreeMap<u64, CreditActivity, Memory>> = RefCell::new(
+    pub static NEWMCP_GRANTS: RefCell<StableBTreeMap<NewMcpGrantKey, NewMcpGrant, Memory>> = RefCell::new(
         StableBTreeMap::init(
             MEMORY_MANAGER.with(|m| m.borrow().get(MemoryId::new(25)))
         )
     );
 
-    pub static GRANT_POLICIES: RefCell<StableBTreeMap<GrantAction, GrantPolicy, Memory>> = RefCell::new(
+    pub static TOKEN_ACTIVITIES: RefCell<StableBTreeMap<u64, TokenActivity, Memory>> = RefCell::new(
         StableBTreeMap::init(
             MEMORY_MANAGER.with(|m| m.borrow().get(MemoryId::new(26)))
+        )
+    );
+
+    pub static CREDIT_ACTIVITIES: RefCell<StableBTreeMap<u64, CreditActivity, Memory>> = RefCell::new(
+        StableBTreeMap::init(
+            MEMORY_MANAGER.with(|m| m.borrow().get(MemoryId::new(27)))
+        )
+    );
+
+    pub static GRANT_POLICIES: RefCell<StableBTreeMap<GrantAction, GrantPolicy, Memory>> = RefCell::new(
+        StableBTreeMap::init(
+            MEMORY_MANAGER.with(|m| m.borrow().get(MemoryId::new(28)))
         )
     );
 }

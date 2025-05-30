@@ -21,7 +21,8 @@ use token_economy_types::{
     TokenActivity, TokenActivityType,
     CreditActivity, CreditActivityType,
     TransferStatus as TokenTransferStatus,
-    AccountInfo, TokenGrantStatus, GrantPolicy
+    AccountInfo, TokenGrantStatus, GrantPolicy,
+    NewMcpGrant
 };
 use token_economy::{record_token_activity, record_credit_activity};
 
@@ -569,9 +570,9 @@ fn get_balance_summary(principal_id: String) -> (u64, u64, u64, u64) {
 }
 
 #[ic_cdk::update]
-fn stack_credit(principal_id: String, amount: u64) -> Result<AccountInfo, String> {
+fn stack_credit(principal_id: String,mcp_name:String, amount: u64) -> Result<AccountInfo, String> {
     println!("Input: stack_credit - principal_id: {}, amount: {}", principal_id, amount);
-    let result = token_economy::stack_credits(principal_id, amount);
+    let result = token_economy::stack_credits(principal_id, mcp_name, amount);
     println!("Output: stack_credit - result: {:?}", result);
     result
 }
@@ -842,5 +843,99 @@ fn create_and_claim_newuser_grant(principal_id: String) -> Result<u64, String> {
         println!("Output: create_and_claim_newuser_grant - claimed amount: {}", claim_result);
         Ok(claim_result)
     }
+}
+
+#[ic_cdk::update]
+fn create_and_claim_newmcp_grant(principal_id: String, mcp_name: String) -> Result<u64, String> {
+    println!("Input: create_and_claim_newmcp_grant - principal_id: {}, mcp_name: {}", principal_id, mcp_name);
+    
+    // First create a new MCP grant
+    let new_grant = NewMcpGrant {
+        recipient: principal_id.clone(),
+        mcp_name: mcp_name.clone(),
+        amount: 10000, // Default amount for new MCP
+        start_time: ic_cdk::api::time() / 10_000,
+        claimed_amount: 0,
+        status: TokenGrantStatus::Active,
+    };
+    
+    token_economy::create_mcp_grant(new_grant)?;
+    
+    // Then claim the grant
+    let claim_result = token_economy::claim_mcp_grant_with_mcpname(&principal_id, &mcp_name)?;
+    println!("Output: create_and_claim_newmcp_grant - claimed amount: {}", claim_result);
+    Ok(claim_result)
+}
+
+#[ic_cdk::update]
+fn create_mcp_grant(grant: NewMcpGrant) -> Result<(), String> {
+    println!("Input: create_mcp_grant - grant: {:?}", grant);
+    let result = token_economy::create_mcp_grant(grant);
+    println!("Output: create_mcp_grant - result: {:?}", result);
+    result
+}
+
+#[ic_cdk::update]
+fn claim_mcp_grant(principal_id: String) -> Result<u64, String> {
+    println!("Input: claim_mcp_grant - principal_id: {}", principal_id);
+    let result = token_economy::claim_mcp_grant(&principal_id);
+    println!("Output: claim_mcp_grant - result: {:?}", result);
+    result
+}
+
+#[ic_cdk::query]
+fn get_mcp_grant(recipient: String, mcp_name: String) -> Option<NewMcpGrant> {
+    println!("Input: get_mcp_grant - recipient: {}, mcp_name: {}", recipient, mcp_name);
+    let result = token_economy::get_mcp_grant(&recipient, &mcp_name);
+    println!("Output: get_mcp_grant - result: {:?}", result);
+    result
+}
+
+#[ic_cdk::query]
+fn get_all_mcp_grants() -> Vec<NewMcpGrant> {
+    println!("Input: get_all_mcp_grants");
+    let result = token_economy::get_all_mcp_grants();
+    println!("Output: get_all_mcp_grants - count: {}", result.len());
+    result
+}
+
+#[ic_cdk::query]
+fn get_mcp_grants_paginated(offset: u64, limit: usize) -> Vec<NewMcpGrant> {
+    println!("Input: get_mcp_grants_paginated - offset: {}, limit: {}", offset, limit);
+    let result = token_economy::get_mcp_grants_paginated(offset, limit);
+    println!("Output: get_mcp_grants_paginated - count: {}", result.len());
+    result
+}
+
+#[ic_cdk::query]
+fn get_mcp_grants_by_recipient(recipient: String) -> Vec<NewMcpGrant> {
+    println!("Input: get_mcp_grants_by_recipient - recipient: {}", recipient);
+    let result = token_economy::get_mcp_grants_by_recipient(&recipient);
+    println!("Output: get_mcp_grants_by_recipient - count: {}", result.len());
+    result
+}
+
+#[ic_cdk::query]
+fn get_mcp_grants_by_mcp(mcp_name: String) -> Vec<NewMcpGrant> {
+    println!("Input: get_mcp_grants_by_mcp - mcp_name: {}", mcp_name);
+    let result = token_economy::get_mcp_grants_by_mcp(&mcp_name);
+    println!("Output: get_mcp_grants_by_mcp - count: {}", result.len());
+    result
+}
+
+#[ic_cdk::query]
+fn get_mcp_grants_by_status(status: TokenGrantStatus) -> Vec<NewMcpGrant> {
+    println!("Input: get_mcp_grants_by_status - status: {:?}", status);
+    let result = token_economy::get_mcp_grants_by_status(&status);
+    println!("Output: get_mcp_grants_by_status - count: {}", result.len());
+    result
+}
+
+#[ic_cdk::query]
+fn get_mcp_grants_count() -> u64 {
+    println!("Input: get_mcp_grants_count");
+    let result = token_economy::get_mcp_grants_count();
+    println!("Output: get_mcp_grants_count - count: {}", result);
+    result
 }
 

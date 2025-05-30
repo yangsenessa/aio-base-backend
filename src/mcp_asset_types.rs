@@ -28,6 +28,21 @@ pub struct McpItem {
     pub sampling: bool,
 }
 
+#[derive(CandidType, Serialize, Deserialize, Clone, Debug)]
+pub struct McpStackRecord {
+    pub principal_id: String,
+    pub mcp_name: String,
+    pub stack_time: u64,
+    pub stack_amount: u64,
+    pub stack_status: StackStatus,
+}
+
+#[derive(CandidType, Serialize, Deserialize, Clone, Debug)]
+pub enum StackStatus {
+    Stacked,
+    Unstacked,
+}
+
 // Define the key for user data association
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct UserMcpKey {
@@ -59,6 +74,30 @@ impl ic_stable_structures::Storable for McpItem {
 
     const BOUND: Bound = Bound::Bounded { max_size: 20000 * 1024, is_fixed_size: false }; // 100KB should be sufficient
 }
+impl ic_stable_structures::Storable for McpStackRecord {
+    fn to_bytes(&self) -> std::borrow::Cow<[u8]> {
+        Cow::Owned(Encode!(self).expect("Failed to encode McpStackRecord"))
+    }
+
+    fn from_bytes(bytes: std::borrow::Cow<[u8]>) -> Self {
+        Decode!(bytes.as_ref(), Self).expect("Failed to decode McpStackRecord")
+    }
+
+    const BOUND: Bound = Bound::Bounded { max_size: 1024 * 4, is_fixed_size: false };
+}
+
+impl ic_stable_structures::Storable for StackStatus {
+    fn to_bytes(&self) -> std::borrow::Cow<[u8]> {
+        Cow::Owned(Encode!(self).expect("Failed to encode StackStatus"))
+    }
+
+    fn from_bytes(bytes: std::borrow::Cow<[u8]>) -> Self {
+        Decode!(bytes.as_ref(), Self).expect("Failed to decode StackStatus")
+    }
+
+    const BOUND: Bound = Bound::Bounded { max_size: 256, is_fixed_size: false };
+}
+
 
 thread_local! {
     static MEMORY_MANAGER: RefCell<MemoryManager<DefaultMemoryImpl>> = 
@@ -73,6 +112,12 @@ thread_local! {
     static USER_MCP_INDEX: RefCell<StableBTreeMap<UserMcpKey, (), Memory>> = RefCell::new(
         StableBTreeMap::init(
             MEMORY_MANAGER.with(|m| m.borrow().get(MemoryId::new(7)))
+        )
+    );
+    
+    static MAP_STACK_RECORDS: RefCell<StableBTreeMap<u64, McpStackRecord, Memory>> = RefCell::new(
+        StableBTreeMap::init(
+            MEMORY_MANAGER.with(|m| m.borrow().get(MemoryId::new(8)))
         )
     );
 }
@@ -342,5 +387,51 @@ pub fn delete_mcp_item(name: String) -> Result<(), String> {
             },
             None => Err(format!("MCP with name '{}' not found", name))
         }
+    })
+}
+
+/// Create a stack record for an MCP
+pub fn stack_mcp(mcp_name: String, principal_id: String, stack_amount: u64) -> Result<(), String> {
+    // Get the current timestamp
+    let stack_time = ic_cdk::api::time();
+    
+    // Create a new stack record
+    let stack_record = McpStackRecord {
+        principal_id,
+        mcp_name,
+        stack_time,
+        stack_amount,
+        stack_status: StackStatus::Stacked,
+    };
+
+    // Store the stack record
+    MAP_STACK_RECORDS.with(|records| {
+        let mut records = records.borrow_mut();
+        let record_id = records.len() as u64;
+        records.insert(record_id, stack_record);
+        Ok(())
+    })
+}
+
+/// Create an unstack record for an MCP
+pub fn unstack_mcp(mcp_name: String, principal_id: String, stack_amount: u64) -> Result<(), String> {
+    // Get the current timestamp
+    let stack_time = ic_cdk::api::time();
+    
+    // Create a new unstack record
+    let unstack_record = McpStackRecord {
+        principal_id,
+        mcp_name,
+        stack_time,
+        stack_amount,
+        stack_status: StackStatus::Unstacked,
+    };
+
+    // Store the unstack record
+    MAP_STACK_RECORDS.with(|records| {
+        let mut records = records.borrow_mut();
+        let record_id = records.len() as u64;
+        records.insert(record_id, unstack_record);
+        Ok(())
     })
 }
