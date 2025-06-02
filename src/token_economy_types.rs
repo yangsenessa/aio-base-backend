@@ -108,10 +108,10 @@ pub struct NewMcpGrant {
     pub status: TokenGrantStatus,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, CandidType, Serialize, Deserialize)]
 pub struct NewMcpGrantKey {
     pub recipient: String,
-    pub mcp_name:String
+    pub mcp_name: String
 }
 
 #[derive(CandidType, Serialize, Deserialize, Clone, Debug)]
@@ -288,57 +288,25 @@ impl ic_stable_structures::Storable for NewMcpGrant {
 // Implement Storable for NewMcpGrantKey
 impl ic_stable_structures::Storable for NewMcpGrantKey {
     fn to_bytes(&self) -> std::borrow::Cow<[u8]> {
-        Cow::Owned(Encode!(&self.recipient, &self.mcp_name).expect("Failed to encode NewMcpGrantKey"))
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(self.recipient.as_bytes());
+        bytes.push(0); // null terminator
+        bytes.extend_from_slice(self.mcp_name.as_bytes());
+        bytes.push(0); // null terminator
+        Cow::Owned(bytes)
     }
 
     fn from_bytes(bytes: std::borrow::Cow<[u8]>) -> Self {
-        let (recipient, mcp_name) = Decode!(bytes.as_ref(), (String, String)).expect("Failed to decode NewMcpGrantKey");
+        let bytes = bytes.as_ref();
+        let mut parts = bytes.split(|&b| b == 0);
+        let recipient = String::from_utf8(parts.next().unwrap_or_default().to_vec())
+            .unwrap_or_default();
+        let mcp_name = String::from_utf8(parts.next().unwrap_or_default().to_vec())
+            .unwrap_or_default();
         Self { recipient, mcp_name }
     }
 
     const BOUND: Bound = Bound::Bounded { max_size: 1024, is_fixed_size: false };
-}
-
-// Initialize stable memory storage
-thread_local! {
-    static MEMORY_MANAGER: RefCell<MemoryManager<DefaultMemoryImpl>> = 
-        RefCell::new(MemoryManager::init(DefaultMemoryImpl::default()));
-    
-    pub static EMISSION_POLICY: RefCell<StableBTreeMap<String, EmissionPolicy, Memory>> = RefCell::new(
-        StableBTreeMap::init(
-            MEMORY_MANAGER.with(|m| m.borrow().get(MemoryId::new(21)))
-        )
-    );
-    
-    pub static NEWUSER_GRANTS: RefCell<StableBTreeMap<TokenGrantKey, TokenGrant, Memory>> = RefCell::new(
-        StableBTreeMap::init(
-            MEMORY_MANAGER.with(|m| m.borrow().get(MemoryId::new(24)))
-        )
-    );
-
-    pub static NEWMCP_GRANTS: RefCell<StableBTreeMap<NewMcpGrantKey, NewMcpGrant, Memory>> = RefCell::new(
-        StableBTreeMap::init(
-            MEMORY_MANAGER.with(|m| m.borrow().get(MemoryId::new(25)))
-        )
-    );
-
-    pub static TOKEN_ACTIVITIES: RefCell<StableBTreeMap<u64, TokenActivity, Memory>> = RefCell::new(
-        StableBTreeMap::init(
-            MEMORY_MANAGER.with(|m| m.borrow().get(MemoryId::new(26)))
-        )
-    );
-
-    pub static CREDIT_ACTIVITIES: RefCell<StableBTreeMap<u64, CreditActivity, Memory>> = RefCell::new(
-        StableBTreeMap::init(
-            MEMORY_MANAGER.with(|m| m.borrow().get(MemoryId::new(27)))
-        )
-    );
-
-    pub static GRANT_POLICIES: RefCell<StableBTreeMap<GrantAction, GrantPolicy, Memory>> = RefCell::new(
-        StableBTreeMap::init(
-            MEMORY_MANAGER.with(|m| m.borrow().get(MemoryId::new(28)))
-        )
-    );
 }
 
 #[derive(CandidType, Serialize, Deserialize, Clone, Debug)]

@@ -5,6 +5,7 @@ use ic_stable_structures::memory_manager::{MemoryId, MemoryManager, VirtualMemor
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::cell::RefCell;
+use crate::stable_mem_storage::{AGENT_ITEMS, USER_AGENT_INDEX};
 
 type Memory = VirtualMemory<DefaultMemoryImpl>;
 
@@ -63,23 +64,6 @@ impl ic_stable_structures::Storable for AgentItem {
 
     // Define a concrete bound instead of Unbounded
     const BOUND: Bound = Bound::Bounded { max_size: 2000 * 1024, is_fixed_size: false }; // 100KB should be sufficient
-}
-
-thread_local! {
-    static MEMORY_MANAGER: RefCell<MemoryManager<DefaultMemoryImpl>> = 
-        RefCell::new(MemoryManager::init(DefaultMemoryImpl::default()));
-    
-    static AGENT_ITEMS: RefCell<StableVec<AgentItem, Memory>> = RefCell::new(
-        StableVec::init(
-            MEMORY_MANAGER.with(|m| m.borrow().get(MemoryId::new(0)))
-        ).unwrap()
-    );
-    
-    static USER_AGENT_INDEX: RefCell<StableBTreeMap<UserAgentKey, (), Memory>> = RefCell::new(
-        StableBTreeMap::init(
-            MEMORY_MANAGER.with(|m| m.borrow().get(MemoryId::new(4)))
-        )
-    );
 }
 
 /// Add a new agent item to the storage

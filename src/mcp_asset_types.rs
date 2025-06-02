@@ -5,27 +5,49 @@ use ic_stable_structures::memory_manager::{MemoryId, MemoryManager, VirtualMemor
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::cell::RefCell;
+use crate::stable_mem_storage::{MCP_ITEMS, USER_MCP_INDEX, MCP_STACK_RECORDS};
 
 type Memory = VirtualMemory<DefaultMemoryImpl>;
 
 #[derive(CandidType, Serialize, Deserialize, Clone, Debug)]
 pub struct McpItem {
-    pub id: u64,
-    pub name: String,
-    pub description: String,
-    pub author: String,
-    pub owner: String, // Principal ID as string
-    pub git_repo: String,
-    pub exec_file:Option<String>,
-    pub homepage: Option<String>,
-    pub remote_endpoint: Option<String>,
-    pub mcp_type: String, // 'stdio' | 'http' | 'sse'
-    pub community_body: Option<String>,
-    // MCP capabilities
-    pub resources: bool,
-    pub prompts: bool,
-    pub tools: bool,
-    pub sampling: bool,
+    pub id: u64,  // nat64 in Candid, must be non-optional
+    pub name: String,  // text in Candid
+    pub description: String,  // text in Candid
+    pub author: String,  // text in Candid
+    pub owner: String,  // text in Candid
+    pub git_repo: String,  // text in Candid
+    pub exec_file: Option<String>,  // opt text in Candid
+    pub homepage: Option<String>,  // opt text in Candid
+    pub remote_endpoint: Option<String>,  // opt text in Candid
+    pub mcp_type: String,  // text in Candid
+    pub community_body: Option<String>,  // opt text in Candid
+    pub resources: bool,  // bool in Candid
+    pub prompts: bool,  // bool in Candid
+    pub tools: bool,  // bool in Candid
+    pub sampling: bool,  // bool in Candid
+}
+
+impl Default for McpItem {
+    fn default() -> Self {
+        Self {
+            id: 1,  // Start with 1 instead of 0
+            name: String::new(),
+            description: String::new(),
+            author: String::new(),
+            owner: String::new(),
+            git_repo: String::new(),
+            exec_file: None,
+            homepage: None,
+            remote_endpoint: None,
+            mcp_type: String::new(),
+            community_body: None,
+            resources: false,
+            prompts: false,
+            tools: false,
+            sampling: false,
+        }
+    }
 }
 
 #[derive(CandidType, Serialize, Deserialize, Clone, Debug)]
@@ -37,7 +59,7 @@ pub struct McpStackRecord {
     pub stack_status: StackStatus,
 }
 
-#[derive(CandidType, Serialize, Deserialize, Clone, Debug)]
+#[derive(CandidType, Serialize, Deserialize, Clone, Debug, Copy)]
 pub enum StackStatus {
     Stacked,
     Unstacked,
@@ -47,17 +69,17 @@ pub enum StackStatus {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct UserMcpKey {
     pub owner: String,
-    pub item_id: u64,
+    pub mcp_name: String,  // Changed from item_id to mcp_name
 }
 
 impl ic_stable_structures::Storable for UserMcpKey {
     fn to_bytes(&self) -> std::borrow::Cow<[u8]> {
-        Cow::Owned(Encode!(&self.owner, &self.item_id).expect("Failed to encode UserMcpKey"))
+        Cow::Owned(Encode!(&self.owner, &self.mcp_name).expect("Failed to encode UserMcpKey"))
     }
 
     fn from_bytes(bytes: std::borrow::Cow<[u8]>) -> Self {
-        let (owner, item_id) = Decode!(bytes.as_ref(), String, u64).expect("Failed to decode UserMcpKey");
-        Self { owner, item_id }
+        let (owner, mcp_name) = Decode!(bytes.as_ref(), String, String).expect("Failed to decode UserMcpKey");
+        Self { owner, mcp_name }
     }
 
     const BOUND: Bound = Bound::Bounded { max_size: 1024, is_fixed_size: false };
@@ -65,18 +87,58 @@ impl ic_stable_structures::Storable for UserMcpKey {
 
 impl ic_stable_structures::Storable for McpItem {
     fn to_bytes(&self) -> std::borrow::Cow<[u8]> {
-        Cow::Owned(Encode!(self).expect("Failed to encode McpItem"))
+        ic_cdk::println!("[DEBUG] Storable::to_bytes - Input item: {:?}", self);
+        
+        // Ensure id is set before encoding
+        let mut item = self.clone();
+        if item.id == 0 {
+            MCP_ITEMS.with(|items| {
+                item.id = items.borrow().len() as u64 + 1;
+            });
+        }
+        
+        // Use the struct directly for encoding
+        let bytes = Encode!(&item).expect("Failed to encode McpItem");
+        ic_cdk::println!("[DEBUG] Storable::to_bytes - Encoded bytes length: {}", bytes.len());
+        Cow::Owned(bytes)
     }
 
     fn from_bytes(bytes: std::borrow::Cow<[u8]>) -> Self {
-        Decode!(bytes.as_ref(), Self).expect("Failed to decode McpItem")
+        ic_cdk::println!("[DEBUG] Storable::from_bytes - Input bytes length: {}", bytes.len());
+        
+        // Try to decode as the struct directly
+        match Decode!(bytes.as_ref(), Self) {
+            Ok(item) => {
+                ic_cdk::println!("[DEBUG] Storable::from_bytes - Successfully decoded: {:?}", item);
+                item
+            },
+            Err(e) => {
+                ic_cdk::println!("[ERROR] Storable::from_bytes - Failed to decode: {:?}", e);
+                ic_cdk::println!("[ERROR] Storable::from_bytes - Raw bytes: {:?}", bytes);
+                
+                // If decoding fails, try to create a default item with the stored name
+                if bytes.len() > 0 {
+                    // Try to extract the name from the bytes if possible
+                    if let Ok(name) = String::from_utf8(bytes[..].to_vec()) {
+                        if !name.is_empty() {
+                            let mut item = McpItem::default();
+                            item.name = name;
+                            return item;
+                        }
+                    }
+                }
+                
+                McpItem::default()
+            }
+        }
     }
-
-    const BOUND: Bound = Bound::Bounded { max_size: 20000 * 1024, is_fixed_size: false }; // 100KB should be sufficient
+        
+    const BOUND: Bound = Bound::Bounded { max_size: 20000 * 1024, is_fixed_size: false };
 }
+
 impl ic_stable_structures::Storable for McpStackRecord {
     fn to_bytes(&self) -> std::borrow::Cow<[u8]> {
-        Cow::Owned(Encode!(self).expect("Failed to encode McpStackRecord"))
+        Cow::Owned(Encode!(&self).expect("Failed to encode McpStackRecord"))
     }
 
     fn from_bytes(bytes: std::borrow::Cow<[u8]>) -> Self {
@@ -88,7 +150,7 @@ impl ic_stable_structures::Storable for McpStackRecord {
 
 impl ic_stable_structures::Storable for StackStatus {
     fn to_bytes(&self) -> std::borrow::Cow<[u8]> {
-        Cow::Owned(Encode!(self).expect("Failed to encode StackStatus"))
+        Cow::Owned(Encode!(&self).expect("Failed to encode StackStatus"))
     }
 
     fn from_bytes(bytes: std::borrow::Cow<[u8]>) -> Self {
@@ -98,130 +160,109 @@ impl ic_stable_structures::Storable for StackStatus {
     const BOUND: Bound = Bound::Bounded { max_size: 256, is_fixed_size: false };
 }
 
-
-thread_local! {
-    static MEMORY_MANAGER: RefCell<MemoryManager<DefaultMemoryImpl>> = 
-        RefCell::new(MemoryManager::init(DefaultMemoryImpl::default()));
-    
-    static MCP_ITEMS: RefCell<StableVec<McpItem, Memory>> = RefCell::new(
-        StableVec::init(
-            MEMORY_MANAGER.with(|m| m.borrow().get(MemoryId::new(1)))
-        ).expect("Failed to initialize MCP items storage")
-    );
-    
-    static USER_MCP_INDEX: RefCell<StableBTreeMap<UserMcpKey, (), Memory>> = RefCell::new(
-        StableBTreeMap::init(
-            MEMORY_MANAGER.with(|m| m.borrow().get(MemoryId::new(7)))
-        )
-    );
-    
-    static MAP_STACK_RECORDS: RefCell<StableBTreeMap<u64, McpStackRecord, Memory>> = RefCell::new(
-        StableBTreeMap::init(
-            MEMORY_MANAGER.with(|m| m.borrow().get(MemoryId::new(8)))
-        )
-    );
-}
-
 /// Add a new MCP item to the storage
-pub fn add_mcp_item(mcp: McpItem, caller_id: String) -> Result<u64, String> {
+pub fn add_mcp_item(mcp: McpItem, caller_id: String) -> Result<String, String> {
+    ic_cdk::println!("[DEBUG] add_mcp_item called with name='{}', caller_id='{}'", mcp.name, caller_id);
+    
+    // Validate required fields
+    if mcp.name.trim().is_empty() {
+        return Err("MCP name cannot be empty".to_string());
+    }
+    
+    if mcp.description.trim().is_empty() {
+        return Err("MCP description cannot be empty".to_string());
+    }
+    
+    if mcp.author.trim().is_empty() {
+        return Err("MCP author cannot be empty".to_string());
+    }
+    
+    if mcp.git_repo.trim().is_empty() {
+        return Err("MCP git repository cannot be empty".to_string());
+    }
+    
+    // Validate MCP type
+    if !["stdio", "http", "sse"].contains(&mcp.mcp_type.as_str()) {
+        return Err("Invalid MCP type. Must be one of: stdio, http, sse".to_string());
+    }
+    
+    // Validate git repository URL format
+    if !mcp.git_repo.starts_with("http://") && !mcp.git_repo.starts_with("https://") {
+        return Err("Git repository must be a valid HTTP(S) URL".to_string());
+    }
+    
+    // Validate homepage URL if provided
+    if let Some(homepage) = &mcp.homepage {
+        if !homepage.trim().is_empty() && !homepage.starts_with("http://") && !homepage.starts_with("https://") {
+            return Err("Homepage must be a valid HTTP(S) URL".to_string());
+        }
+    }
+    
+    // Validate remote endpoint URL if provided
+    if let Some(endpoint) = &mcp.remote_endpoint {
+        if !endpoint.trim().is_empty() && !endpoint.starts_with("http://") && !endpoint.starts_with("https://") {
+            return Err("Remote endpoint must be a valid HTTP(S) URL".to_string());
+        }
+    }
+    
+    // Validate exec_file if provided
+    if let Some(exec_file) = &mcp.exec_file {
+        if exec_file.trim().is_empty() {
+            return Err("Exec file path cannot be empty if provided".to_string());
+        }
+    }
+    
+    // Validate community_body if provided
+    if let Some(body) = &mcp.community_body {
+        if body.trim().is_empty() {
+            return Err("Community body cannot be empty if provided".to_string());
+        }
+    }
+
     MCP_ITEMS.with(|items| {
         let mut items = items.borrow_mut();
-        let total_items = items.len();
         
-        // First check for existing active MCP with same name
-        for i in 0..total_items {
-            let existing = items.get(i).unwrap();
-            if !existing.name.is_empty() && existing.name == mcp.name {
-                return Err(format!("MCP with name '{}' already exists", mcp.name));
-            }
+        // Check if MCP with same name already exists
+        if items.contains_key(&mcp.name) {
+            return Err(format!("MCP with name '{}' already exists", mcp.name));
         }
         
-        // Then check for deleted MCP with same name (empty name)
-        let mut empty_slot = None;
-        for i in 0..total_items {
-            let existing = items.get(i).unwrap();
-            if existing.name.is_empty() {
-                empty_slot = Some(i);
-                break;
-            }
-        }
+        let mut mcp_item = mcp.clone();
+        mcp_item.owner = caller_id.clone();
         
-        ic_cdk::println!("Adding new MCP item: name={}, owner={}", mcp.name, caller_id);
+        // Set id to current length + 1 to ensure it's never 0
+        mcp_item.id = items.len() as u64 + 1;
         
-        // If we found an empty slot, use it
-        if let Some(index) = empty_slot {
-            let mut mcp_item = mcp.clone();
-            mcp_item.id = index as u64;
-            mcp_item.owner = caller_id;
-            items.set(index, &mcp_item);
-            ic_cdk::println!("MCP item added to existing slot: index={}, name={}", index, mcp_item.name);
-            
-            // Create owner index entry
-            USER_MCP_INDEX.with(|user_index| {
-                let mut user_index = user_index.borrow_mut();
-                let key = UserMcpKey { 
-                    owner: mcp_item.owner.clone(), 
-                    item_id: index as u64 
-                };
-                user_index.insert(key, ());
-            });
-            
-            Ok(index as u64)
-        } else {
-            // If no empty slot, add new item
-            let index = items.len();
-            let mut mcp_item = mcp.clone();
-            mcp_item.id = index as u64;
-            mcp_item.owner = caller_id;
-            items.push(&mcp_item);
-            ic_cdk::println!("MCP item added to new slot: index={}, name={}", index, mcp_item.name);
-            
-            // Create owner index entry
-            USER_MCP_INDEX.with(|user_index| {
-                let mut user_index = user_index.borrow_mut();
-                let key = UserMcpKey { 
-                    owner: mcp_item.owner.clone(), 
-                    item_id: index as u64 
-                };
-                user_index.insert(key, ());
-            });
-            
-            Ok(index as u64)
-        }
+        ic_cdk::println!("[DEBUG] Adding MCP item with id={}, name='{}', owner='{}'", mcp_item.id, mcp_item.name, mcp_item.owner);
+        
+        // Insert the new item
+        items.insert(mcp_item.name.clone(), mcp_item.clone());
+        
+        // Create owner index entry
+        USER_MCP_INDEX.with(|user_index| {
+            let mut user_index = user_index.borrow_mut();
+            let key = UserMcpKey { 
+                owner: mcp_item.owner.clone(), 
+                mcp_name: mcp_item.name.clone()
+            };
+            user_index.insert(key, ());
+        });
+        
+        Ok(mcp_item.name)  // Return the name as the identifier
     })
 }
 
-/// Get an MCP item by index
-pub fn get_mcp_item(index: u64) -> Option<McpItem> {
+/// Get an MCP item by name
+pub fn get_mcp_item(name: String) -> Option<McpItem> {
     MCP_ITEMS.with(|items| {
-        let items = items.borrow();
-        if index < items.len() {
-            let item = items.get(index).unwrap();
-            // Check if it's an empty object
-            if item.name.is_empty() {
-                None
-            } else {
-                Some(item)
-            }
-        } else {
-            None
-        }
+        items.borrow().get(&name)
     })
 }
 
 /// Get all MCP items
 pub fn get_all_mcp_items() -> Vec<McpItem> {
     MCP_ITEMS.with(|items| {
-        let items = items.borrow();
-        let mut result = Vec::new();
-        for i in 0..items.len() {
-            let item = items.get(i).unwrap();
-            // Only add non-empty objects
-            if !item.name.is_empty() {
-                result.push(item);
-            }
-        }
-        result
+        items.borrow().iter().map(|(_, item)| item).collect()
     })
 }
 
@@ -233,16 +274,13 @@ pub fn get_user_mcp_items(owner: String) -> Vec<McpItem> {
         let index = index.borrow();
         
         // Create range bounds for this user
-        let start_key = UserMcpKey { owner: owner.clone(), item_id: 0 };
-        let end_key = UserMcpKey { owner: owner.clone(), item_id: u64::MAX };
+        let start_key = UserMcpKey { owner: owner.clone(), mcp_name: String::new() };
+        let end_key = UserMcpKey { owner: owner.clone(), mcp_name: String::from_utf8(vec![255; 100]).unwrap() };
         
         // Get all items in range
         for (key, _) in index.range(start_key..=end_key) {
-            if let Some(item) = get_mcp_item(key.item_id) {
-                // Only add non-empty objects
-                if !item.name.is_empty() {
-                    result.push(item);
-                }
+            if let Some(item) = get_mcp_item(key.mcp_name.clone()) {
+                result.push(item);
             }
         }
     });
@@ -251,52 +289,73 @@ pub fn get_user_mcp_items(owner: String) -> Vec<McpItem> {
 }
 
 /// Update an existing MCP item
-pub fn update_mcp_item(index: u64, mut mcp: McpItem) -> Result<(), String> {
+pub fn update_mcp_item(name: String, mut mcp: McpItem) -> Result<(), String> {
     MCP_ITEMS.with(|items| {
-        let items = items.borrow_mut(); // Removed mut from items
-        if index < items.len() {
-            let existing = items.get(index).unwrap();
-            
-            // Check if the caller is the owner
-            if existing.owner != mcp.owner {
-                return Err("Only the owner can update this item".to_string());
-            }
-            
-            // Keep the ID and owner
-            mcp.id = index;
-            
-            items.set(index, &mcp);
-            Ok(())
-        } else {
-            Err("Index out of bounds".to_string())
+        let mut items = items.borrow_mut();
+        
+        // Check if item exists
+        if !items.contains_key(&name) {
+            return Err(format!("MCP with name '{}' not found", name));
         }
+        
+        let existing = items.get(&name).unwrap();
+        
+        // Check if the caller is the owner
+        if existing.owner != mcp.owner {
+            return Err("Only the owner can update this item".to_string());
+        }
+        
+        // Keep the name, owner, and id from the existing item
+        mcp.name = name.clone();
+        mcp.id = existing.id;  // Preserve the existing id
+        
+        items.insert(name, mcp);
+        Ok(())
     })
 }
 
 /// Get MCP items with pagination
-pub fn get_mcp_items_paginated(offset: u64, limit: usize) -> Vec<McpItem> {
+pub fn get_mcp_items_paginated(offset: u64, limit: u64) -> Vec<McpItem> {
+    ic_cdk::println!("[DEBUG] get_mcp_items_paginated called with offset={}, limit={}", offset, limit);
+    
     MCP_ITEMS.with(|items| {
         let items = items.borrow();
-        let total_items = items.len();
+        let total_items = items.len() as u64;
         
-        // If offset is beyond the end, return empty vec
+        ic_cdk::println!("[DEBUG] total items {}", total_items);
+        
         if offset >= total_items {
             return Vec::new();
         }
         
-        // Calculate the end index
-        let end = std::cmp::min(offset + limit as u64, total_items);
+        if limit == 0 {
+            ic_cdk::println!("[DEBUG] Limit is 0");
+            return Vec::new();
+        }
         
-        // Collect the items in the range
+        let end = std::cmp::min(offset + limit, total_items);
+        ic_cdk::println!("[DEBUG] offset {} end {}", offset, end);
+        
+        // Get all keys first
+        let keys: Vec<String> = items.iter().map(|(key, _)| key.clone()).collect();
+        ic_cdk::println!("[DEBUG] Total keys: {}", keys.len());
+        
+        // Get the slice of keys we need
+        let keys_slice = &keys[offset as usize..end as usize];
+        ic_cdk::println!("[DEBUG] Keys slice length: {}", keys_slice.len());
+        
+        // Get items by key and add to result
         let mut result = Vec::new();
-        for i in offset..end {
-            let item = items.get(i).unwrap();
-            // Only add non-empty objects
-            if !item.name.is_empty() {
+        for (index, key) in keys_slice.iter().enumerate() {
+            ic_cdk::println!("[DEBUG] Processing item at index {}: {}", index, key);
+            if let Some(item) = items.get(key) {
+                let mut item = item.clone();
+                item.id = (offset + index as u64) + 1;
                 result.push(item);
             }
         }
         
+        ic_cdk::println!("[DEBUG] Returning {} items", result.len());
         result
     })
 }
@@ -313,80 +372,32 @@ pub fn get_user_mcp_items_paginated(owner: String, offset: u64, limit: usize) ->
     user_items[offset as usize..end].to_vec()
 }
 
-/// Get an MCP item by name
-pub fn get_mcp_item_by_name(name: String) -> Option<McpItem> {
-    ic_cdk::println!("[DEBUG] get_mcp_item_by_name called with name: {}", name);
-    MCP_ITEMS.with(|items| {
-        let items = items.borrow();
-        ic_cdk::println!("[DEBUG] Total items in storage: {}", items.len());
-        for i in 0..items.len() {
-            let item = items.get(i).unwrap();
-            ic_cdk::println!("[DEBUG] Checking item {}: name='{}', empty={}", i, item.name, item.name.is_empty());
-            // Check if it's a non-empty object and name matches
-            if !item.name.is_empty() && item.name == name {
-                ic_cdk::println!("[DEBUG] Found matching item at index {}", i);
-                return Some(item);
-            }
-        }
-        ic_cdk::println!("[DEBUG] No matching item found");
-        None
-    })
-}
-
 /// Delete an MCP item by name
 pub fn delete_mcp_item(name: String) -> Result<(), String> {
     MCP_ITEMS.with(|items| {
         let mut items = items.borrow_mut();
-        let total_items = items.len();
         
-        // Find the item by name
-        let mut found_index = None;
-        for i in 0..total_items {
-            let item = items.get(i).unwrap();
-            if item.name == name {
-                found_index = Some(i);
-                break;
-            }
+        // Check if item exists
+        if !items.contains_key(&name) {
+            return Err(format!("MCP with name '{}' not found", name));
         }
         
-        match found_index {
-            Some(index) => {
-                // Remove from USER_MCP_INDEX
-                USER_MCP_INDEX.with(|user_index| {
-                    let mut user_index = user_index.borrow_mut();
-                    let item = items.get(index).unwrap();
-                    let key = UserMcpKey { 
-                        owner: item.owner.clone(), 
-                        item_id: index as u64 
-                    };
-                    user_index.remove(&key);
-                });
-                
-                // Create an empty MCP item to replace the existing one
-                let empty_item = McpItem {
-                    id: index as u64,
-                    name: String::new(),
-                    description: String::new(),
-                    author: String::new(),
-                    owner: String::new(),
-                    git_repo: String::new(),
-                    exec_file: None,
-                    homepage: None,
-                    remote_endpoint: None,
-                    mcp_type: String::new(),
-                    community_body: None,
-                    resources: false,
-                    prompts: false,
-                    tools: false,
-                    sampling: false,
-                };
-                
-                // Replace the item with empty one
-                items.set(index, &empty_item);
-                Ok(())
-            },
-            None => Err(format!("MCP with name '{}' not found", name))
-        }
+        // Get the item before removing it
+        let item = items.get(&name).unwrap();
+        
+        // Remove from USER_MCP_INDEX
+        USER_MCP_INDEX.with(|user_index| {
+            let mut user_index = user_index.borrow_mut();
+            let key = UserMcpKey { 
+                owner: item.owner.clone(), 
+                mcp_name: name.clone()  // Use mcp_name instead of item_id
+            };
+            user_index.remove(&key);
+        });
+        
+        // Remove the item
+        items.remove(&name);
+        Ok(())
     })
 }
 
@@ -405,7 +416,7 @@ pub fn stack_mcp(mcp_name: String, principal_id: String, stack_amount: u64) -> R
     };
 
     // Store the stack record
-    MAP_STACK_RECORDS.with(|records| {
+    MCP_STACK_RECORDS.with(|records| {
         let mut records = records.borrow_mut();
         let record_id = records.len() as u64;
         records.insert(record_id, stack_record);
@@ -428,10 +439,43 @@ pub fn unstack_mcp(mcp_name: String, principal_id: String, stack_amount: u64) ->
     };
 
     // Store the unstack record
-    MAP_STACK_RECORDS.with(|records| {
+    MCP_STACK_RECORDS.with(|records| {
         let mut records = records.borrow_mut();
         let record_id = records.len() as u64;
         records.insert(record_id, unstack_record);
         Ok(())
+    })
+}
+
+/// Get paginated stack records for a specific MCP, ordered by stack_time desc and stack_status (Stacked first)
+pub fn get_mcp_stack_records_paginated(mcp_name: String, offset: u64, limit: u64) -> Vec<McpStackRecord> {
+    MCP_STACK_RECORDS.with(|records| {
+        let records = records.borrow();
+        
+        // Collect and filter records for the specific MCP
+        let mut filtered_records: Vec<McpStackRecord> = records
+            .iter()
+            .filter(|(_, record)| record.mcp_name == mcp_name)
+            .map(|(_, record)| record.clone())
+            .collect();
+        
+        // Sort by stack_time (desc) and stack_status (Stacked first)
+        filtered_records.sort_by(|a, b| {
+            match (a.stack_status, b.stack_status) {
+                (StackStatus::Stacked, StackStatus::Unstacked) => std::cmp::Ordering::Less,
+                (StackStatus::Unstacked, StackStatus::Stacked) => std::cmp::Ordering::Greater,
+                _ => b.stack_time.cmp(&a.stack_time), // Descending order for stack_time
+            }
+        });
+        
+        // Apply pagination
+        let start = offset as usize;
+        let end = std::cmp::min(start + limit as usize, filtered_records.len());
+        
+        if start >= filtered_records.len() {
+            return Vec::new();
+        }
+        
+        filtered_records[start..end].to_vec()
     })
 }

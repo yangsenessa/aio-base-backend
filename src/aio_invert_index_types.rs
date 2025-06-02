@@ -4,22 +4,9 @@ use serde::{Serialize, Deserialize as SerdeDeserialize};
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::cell::RefCell;
+use crate::stable_mem_storage::INVERTED_INDEX_STORE;
 
 type Memory = VirtualMemory<DefaultMemoryImpl>;
-
-// Define memory manager
-thread_local! {
-    static MEMORY_MANAGER: RefCell<MemoryManager<DefaultMemoryImpl>> = RefCell::new(
-        MemoryManager::init(DefaultMemoryImpl::default())
-    );
-}
-
-// Define inverted index store
-thread_local! {
-    pub static INVERTED_INDEX_STORE: RefCell<InvertedIndexStore> = RefCell::new(
-        InvertedIndexStore::new(MEMORY_MANAGER.with(|m| m.borrow().get(MemoryId::new(0))))
-    );
-}
 
 // Public API functions
 pub fn store_inverted_index(json_str: String) -> Result<(), String> {

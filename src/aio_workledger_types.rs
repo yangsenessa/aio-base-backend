@@ -5,6 +5,7 @@ use ic_stable_structures::memory_manager::{MemoryId, MemoryManager, VirtualMemor
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::cell::RefCell;
+use crate::stable_mem_storage::{TRACE_ITEMS, USER_TRACE_INDEX, TRACE_ID_INDEX};
 
 type Memory = VirtualMemory<DefaultMemoryImpl>;
 
@@ -75,30 +76,6 @@ impl ic_stable_structures::Storable for UserTraceKey {
     }
 
     const BOUND: Bound = Bound::Bounded { max_size: 2048, is_fixed_size: false };
-}
-
-thread_local! {
-    static MEMORY_MANAGER: RefCell<MemoryManager<DefaultMemoryImpl>> = 
-        RefCell::new(MemoryManager::init(DefaultMemoryImpl::default()));
-    
-    static TRACE_ITEMS: RefCell<StableVec<TraceItem, Memory>> = RefCell::new(
-        StableVec::init(
-            MEMORY_MANAGER.with(|m| m.borrow().get(MemoryId::new(2)))
-        ).unwrap()
-    );
-
-    static USER_TRACE_INDEX: RefCell<StableBTreeMap<UserTraceKey, u64, Memory>> = RefCell::new(
-        StableBTreeMap::init(
-            MEMORY_MANAGER.with(|m| m.borrow().get(MemoryId::new(3)))
-        )
-    );
-
-    // Index for looking up traces by trace_id
-    static TRACE_ID_INDEX: RefCell<StableBTreeMap<String, u64, Memory>> = RefCell::new(
-        StableBTreeMap::init(
-            MEMORY_MANAGER.with(|m| m.borrow().get(MemoryId::new(6)))
-        )
-    );
 }
 
 /// Add a new trace to the storage

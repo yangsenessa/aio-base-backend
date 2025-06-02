@@ -6,10 +6,10 @@ use crate::token_economy_types::{
     EmissionPolicy, SubscriptionPlan, TokenGrant, TokenGrantKey,
     TokenActivity, TokenActivityType, CreditActivity, CreditActivityType,
     TransferStatus, AccountInfo, TokenInfo, TokenGrantStatus,
-    NewMcpGrant, NewMcpGrantKey, NEWMCP_GRANTS
+    NewMcpGrant, NewMcpGrantKey, GrantPolicy
 };
 use icrc_ledger_types::{icrc1::account::Account, icrc1::transfer::{TransferError, BlockIndex}};
-use crate::trace_storage::get_trace;
+use crate::trace_storage::{get_trace_by_id, record_trace_call, IOValue};
 use crate::account_storage::{get_account, upsert_account};
 use std::collections::HashMap;
 use crate::token_economy_types::*;
@@ -19,6 +19,7 @@ use ic_stable_structures::DefaultMemoryImpl;
 use std::borrow::Cow;
 use serde::{Serialize, Deserialize};
 use crate::mcp_asset_types;
+use crate::stable_mem_storage::{NEWUSER_GRANTS, NEWMCP_GRANTS, TOKEN_ACTIVITIES, CREDIT_ACTIVITIES, EMISSION_POLICY, GRANT_POLICIES};
 
 // Re-export NumTokens for public use
 pub use icrc_ledger_types::icrc1::transfer::NumTokens;
@@ -207,7 +208,7 @@ pub fn use_credits(principal_id: String, amount: u64, service: String, metadata:
 
 // Token Grant Operations
 pub fn create_token_grant(grant: TokenGrant) -> Result<(), String> {
-    crate::token_economy_types::NEWUSER_GRANTS.with(|grants| {
+    NEWUSER_GRANTS.with(|grants| {
         let key = TokenGrantKey {
             recipient: grant.recipient.clone(),
         };
@@ -265,7 +266,7 @@ pub fn claim_grant(principal_id: &str) -> Result<u64, String> {
 }
 
 pub fn get_token_grant(recipient: &str) -> Option<TokenGrant> {
-    crate::token_economy_types::NEWUSER_GRANTS.with(|grants| {
+    NEWUSER_GRANTS.with(|grants| {
         let key = TokenGrantKey {
             recipient: recipient.to_string(),
         };
@@ -274,7 +275,7 @@ pub fn get_token_grant(recipient: &str) -> Option<TokenGrant> {
 }
 
 pub fn get_all_token_grants() -> Vec<TokenGrant> {
-    crate::token_economy_types::NEWUSER_GRANTS.with(|grants| {
+    NEWUSER_GRANTS.with(|grants| {
         grants.borrow()
             .iter()
             .map(|(_, grant)| grant.clone())
@@ -283,7 +284,7 @@ pub fn get_all_token_grants() -> Vec<TokenGrant> {
 }
 
 pub fn get_token_grants_paginated(offset: u64, limit: usize) -> Vec<TokenGrant> {
-    crate::token_economy_types::NEWUSER_GRANTS.with(|grants| {
+    NEWUSER_GRANTS.with(|grants| {
         grants.borrow()
             .iter()
             .skip(offset as usize)
@@ -294,7 +295,7 @@ pub fn get_token_grants_paginated(offset: u64, limit: usize) -> Vec<TokenGrant> 
 }
 
 pub fn get_token_grants_by_recipient(recipient: &str) -> Vec<TokenGrant> {
-    crate::token_economy_types::NEWUSER_GRANTS.with(|grants| {
+    NEWUSER_GRANTS.with(|grants| {
         grants.borrow()
             .iter()
             .filter(|(_, grant)| grant.recipient == recipient)
@@ -304,7 +305,7 @@ pub fn get_token_grants_by_recipient(recipient: &str) -> Vec<TokenGrant> {
 }
 
 pub fn get_token_grants_by_status(status: &TokenGrantStatus) -> Vec<TokenGrant> {
-    crate::token_economy_types::NEWUSER_GRANTS.with(|grants| {
+    NEWUSER_GRANTS.with(|grants| {
         grants.borrow()
             .iter()
             .filter(|(_, grant)| grant.status == *status)
@@ -314,14 +315,14 @@ pub fn get_token_grants_by_status(status: &TokenGrantStatus) -> Vec<TokenGrant> 
 }
 
 pub fn get_token_grants_count() -> u64 {
-    crate::token_economy_types::NEWUSER_GRANTS.with(|grants| {
+    NEWUSER_GRANTS.with(|grants| {
         grants.borrow().len() as u64
     })
 }
 
 // Activity Recording
 pub fn record_token_activity(activity: TokenActivity) -> Result<(), String> {
-    crate::token_economy_types::TOKEN_ACTIVITIES.with(|activities| {
+    TOKEN_ACTIVITIES.with(|activities| {
         let mut activities = activities.borrow_mut();
         let index = activities.len();
         activities.insert(index, activity);
@@ -330,7 +331,7 @@ pub fn record_token_activity(activity: TokenActivity) -> Result<(), String> {
 }
 
 pub fn record_credit_activity(activity: CreditActivity) -> Result<(), String> {
-    crate::token_economy_types::CREDIT_ACTIVITIES.with(|activities| {
+    CREDIT_ACTIVITIES.with(|activities| {
         let mut activities = activities.borrow_mut();
         let index = activities.len();
         activities.insert(index, activity);
@@ -360,7 +361,7 @@ pub fn get_balance_summary(principal_id: String) -> (u64, u64, u64, u64) {
 
 // Activity Query Methods
 pub fn get_token_activities(principal_id: &str) -> Vec<TokenActivity> {
-    crate::token_economy_types::TOKEN_ACTIVITIES.with(|activities| {
+    TOKEN_ACTIVITIES.with(|activities| {
         activities.borrow()
             .iter()
             .filter(|(_, activity)| activity.from == principal_id || activity.to == principal_id)
@@ -370,7 +371,7 @@ pub fn get_token_activities(principal_id: &str) -> Vec<TokenActivity> {
 }
 
 pub fn get_credit_activities(principal_id: &str) -> Vec<CreditActivity> {
-    crate::token_economy_types::CREDIT_ACTIVITIES.with(|activities| {
+    CREDIT_ACTIVITIES.with(|activities| {
         activities.borrow()
             .iter()
             .filter(|(_, activity)| activity.principal_id == principal_id)
@@ -416,7 +417,7 @@ pub fn init_emission_policy() {
     policy.subscription_multipliers.insert(SubscriptionPlan::Premium, 2.0);
     policy.subscription_multipliers.insert(SubscriptionPlan::Enterprise, 3.0);
 
-    crate::token_economy_types::EMISSION_POLICY.with(|p| {
+    EMISSION_POLICY.with(|p| {
         p.borrow_mut().insert("default".to_string(), policy);
     });
 }
@@ -471,7 +472,7 @@ pub fn calculate_emission(principal_id: &str) -> Result<u64, String> {
 }
 
 pub fn get_emission_policy() -> Result<EmissionPolicy, String> {
-    crate::token_economy_types::EMISSION_POLICY.with(|p| {
+    EMISSION_POLICY.with(|p| {
         p.borrow()
             .get(&"default".to_string())
             .ok_or_else(|| "Emission policy not found".to_string())
@@ -479,7 +480,7 @@ pub fn get_emission_policy() -> Result<EmissionPolicy, String> {
 }
 
 pub fn update_emission_policy(policy: EmissionPolicy) -> Result<(), String> {
-    crate::token_economy_types::EMISSION_POLICY.with(|p| {
+    EMISSION_POLICY.with(|p| {
         p.borrow_mut().insert("default".to_string(), policy);
         Ok(())
     })
@@ -487,7 +488,7 @@ pub fn update_emission_policy(policy: EmissionPolicy) -> Result<(), String> {
 
 // Activity Query Methods
 pub fn get_token_activities_paginated(principal_id: &str, offset: u64, limit: usize) -> Vec<TokenActivity> {
-    crate::token_economy_types::TOKEN_ACTIVITIES.with(|activities| {
+    TOKEN_ACTIVITIES.with(|activities| {
         activities.borrow()
             .iter()
             .filter(|(_, activity)| activity.from == principal_id || activity.to == principal_id)
@@ -499,7 +500,7 @@ pub fn get_token_activities_paginated(principal_id: &str, offset: u64, limit: us
 }
 
 pub fn get_token_activities_by_type(principal_id: &str, activity_type: TokenActivityType) -> Vec<TokenActivity> {
-    crate::token_economy_types::TOKEN_ACTIVITIES.with(|activities| {
+    TOKEN_ACTIVITIES.with(|activities| {
         activities.borrow()
             .iter()
             .filter(|(_, activity)| 
@@ -512,7 +513,7 @@ pub fn get_token_activities_by_type(principal_id: &str, activity_type: TokenActi
 }
 
 pub fn get_token_activities_by_time_period(principal_id: &str, start_time: u64, end_time: u64) -> Vec<TokenActivity> {
-    crate::token_economy_types::TOKEN_ACTIVITIES.with(|activities| {
+    TOKEN_ACTIVITIES.with(|activities| {
         activities.borrow()
             .iter()
             .filter(|(_, activity)| 
@@ -526,7 +527,7 @@ pub fn get_token_activities_by_time_period(principal_id: &str, start_time: u64, 
 }
 
 pub fn get_credit_activities_paginated(principal_id: &str, offset: u64, limit: usize) -> Vec<CreditActivity> {
-    crate::token_economy_types::CREDIT_ACTIVITIES.with(|activities| {
+    CREDIT_ACTIVITIES.with(|activities| {
         activities.borrow()
             .iter()
             .filter(|(_, activity)| activity.principal_id == principal_id)
@@ -538,7 +539,7 @@ pub fn get_credit_activities_paginated(principal_id: &str, offset: u64, limit: u
 }
 
 pub fn get_credit_activities_by_type(principal_id: &str, activity_type: CreditActivityType) -> Vec<CreditActivity> {
-    crate::token_economy_types::CREDIT_ACTIVITIES.with(|activities| {
+    CREDIT_ACTIVITIES.with(|activities| {
         activities.borrow()
             .iter()
             .filter(|(_, activity)| 
@@ -551,7 +552,7 @@ pub fn get_credit_activities_by_type(principal_id: &str, activity_type: CreditAc
 }
 
 pub fn get_credit_activities_by_time_period(principal_id: &str, start_time: u64, end_time: u64) -> Vec<CreditActivity> {
-    crate::token_economy_types::CREDIT_ACTIVITIES.with(|activities| {
+    CREDIT_ACTIVITIES.with(|activities| {
         activities.borrow()
             .iter()
             .filter(|(_, activity)| 
@@ -579,7 +580,7 @@ pub fn log_credit_usage(principal_id: String, amount: u64, service: String, meta
 
 // New MCP Grant Operations
 pub fn create_mcp_grant(grant: NewMcpGrant) -> Result<(), String> {
-    crate::token_economy_types::NEWMCP_GRANTS.with(|grants| {
+    NEWMCP_GRANTS.with(|grants| {
         let key = NewMcpGrantKey {
             recipient: grant.recipient.clone(),
             mcp_name: grant.mcp_name.clone(),
@@ -650,7 +651,7 @@ pub fn claim_mcp_grant(principal_id: &str) -> Result<u64, String> {
 }
 
 pub fn get_mcp_grant(recipient: &str, mcp_name: &str) -> Option<NewMcpGrant> {
-    crate::token_economy_types::NEWMCP_GRANTS.with(|grants| {
+    NEWMCP_GRANTS.with(|grants| {
         let key = NewMcpGrantKey {
             recipient: recipient.to_string(),
             mcp_name: mcp_name.to_string(),
@@ -660,7 +661,7 @@ pub fn get_mcp_grant(recipient: &str, mcp_name: &str) -> Option<NewMcpGrant> {
 }
 
 pub fn get_all_mcp_grants() -> Vec<NewMcpGrant> {
-    crate::token_economy_types::NEWMCP_GRANTS.with(|grants| {
+    NEWMCP_GRANTS.with(|grants| {
         grants.borrow()
             .iter()
             .map(|(_, grant)| grant.clone())
@@ -669,7 +670,7 @@ pub fn get_all_mcp_grants() -> Vec<NewMcpGrant> {
 }
 
 pub fn get_mcp_grants_paginated(offset: u64, limit: usize) -> Vec<NewMcpGrant> {
-    crate::token_economy_types::NEWMCP_GRANTS.with(|grants| {
+    NEWMCP_GRANTS.with(|grants| {
         grants.borrow()
             .iter()
             .skip(offset as usize)
@@ -680,7 +681,7 @@ pub fn get_mcp_grants_paginated(offset: u64, limit: usize) -> Vec<NewMcpGrant> {
 }
 
 pub fn get_mcp_grants_by_recipient(recipient: &str) -> Vec<NewMcpGrant> {
-    crate::token_economy_types::NEWMCP_GRANTS.with(|grants| {
+    NEWMCP_GRANTS.with(|grants| {
         grants.borrow()
             .iter()
             .filter(|(_, grant)| grant.recipient == recipient)
@@ -690,7 +691,7 @@ pub fn get_mcp_grants_by_recipient(recipient: &str) -> Vec<NewMcpGrant> {
 }
 
 pub fn get_mcp_grants_by_mcp(mcp_name: &str) -> Vec<NewMcpGrant> {
-    crate::token_economy_types::NEWMCP_GRANTS.with(|grants| {
+    NEWMCP_GRANTS.with(|grants| {
         grants.borrow()
             .iter()
             .filter(|(_, grant)| grant.mcp_name == mcp_name)
@@ -700,7 +701,7 @@ pub fn get_mcp_grants_by_mcp(mcp_name: &str) -> Vec<NewMcpGrant> {
 }
 
 pub fn get_mcp_grants_by_status(status: &TokenGrantStatus) -> Vec<NewMcpGrant> {
-    crate::token_economy_types::NEWMCP_GRANTS.with(|grants| {
+    NEWMCP_GRANTS.with(|grants| {
         grants.borrow()
             .iter()
             .filter(|(_, grant)| grant.status == *status)
@@ -710,7 +711,7 @@ pub fn get_mcp_grants_by_status(status: &TokenGrantStatus) -> Vec<NewMcpGrant> {
 }
 
 pub fn get_mcp_grants_count() -> u64 {
-    crate::token_economy_types::NEWMCP_GRANTS.with(|grants| {
+    NEWMCP_GRANTS.with(|grants| {
         grants.borrow().len() as u64
     })
 }

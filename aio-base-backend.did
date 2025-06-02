@@ -265,6 +265,56 @@ type NewMcpGrant = record {
   status: TokenGrantStatus;
 };
 
+type StackStatus = variant {
+  Stacked;
+  Unstacked;
+};
+
+type McpStackRecord = record {
+  principal_id : text;
+  mcp_name : text;
+  stack_time : nat64;
+  stack_amount : nat64;
+  stack_status : StackStatus;
+};
+
+type IOValue = record {
+  data_type: text;
+  value: variant {
+    Text: text;
+    Number: float64;
+    Boolean: bool;
+    Object: text;
+    Array: text;
+    Null: null;
+  };
+};
+
+type ProtocolCall = record {
+  id: nat32;
+  protocol: text;
+  agent: text;
+  call_type: text;
+  method: text;
+  input: IOValue;
+  output: IOValue;
+  status: text;
+  error_message: opt text;
+};
+
+type TraceLog = record {
+  trace_id: text;
+  context_id: text;
+  calls: vec ProtocolCall;
+};
+
+type TraceStatistics = record {
+  total_amount: nat64;
+  success_amount: nat64;
+  failed_amount: nat64;
+  total_count: nat64;
+};
+
 service : {
   // Basic API
   "greet": (text) -> (text) query;
@@ -280,23 +330,29 @@ service : {
   "update_agent_item": (nat64, AgentItem) -> (variant { Ok; Err: text });
   
   // MCP Asset API
-  "get_mcp_item": (nat64) -> (opt McpItem) query;
+  "get_mcp_item": (text) -> (opt McpItem) query;
   "get_all_mcp_items": () -> (vec McpItem) query;
   "get_user_mcp_items": () -> (vec McpItem) query;
   "get_user_mcp_items_paginated": (nat64, nat64) -> (vec McpItem) query;
   "get_mcp_items_paginated": (nat64, nat64) -> (vec McpItem) query;
   "get_mcp_item_by_name": (text) -> (opt McpItem) query;
-  "add_mcp_item": (McpItem, text) -> (variant { Ok: nat64; Err: text });
-  "update_mcp_item": (nat64, McpItem) -> (variant { Ok; Err: text });
+  "add_mcp_item": (McpItem, text) -> (variant { Ok: text; Err: text });
+  "update_mcp_item": (text, McpItem) -> (variant { Ok; Err: text });
   "delete_mcp_item": (text) -> (variant { Ok; Err: text });
   
   // Work Ledger API - Trace System
-  "get_trace": (nat64) -> (opt TraceItem) query;
-  "get_trace_by_id": (text) -> (opt TraceItem) query;
-  "get_user_traces": () -> (vec TraceItem) query;
-  "get_user_traces_paginated": (nat64, nat64) -> (vec TraceItem) query;
-  "get_traces_paginated": (nat64, nat64) -> (vec TraceItem) query;
-  "add_trace": (TraceItem) -> (variant { Ok; Err: text });
+  "get_trace": (text) -> (opt TraceLog) query;
+  "get_trace_by_context": (text) -> (opt TraceLog) query;
+  "get_all_traces": () -> (vec TraceLog) query;
+  "get_traces_paginated": (nat64, nat64) -> (vec TraceLog) query;
+  "get_traces_by_protocol": (text) -> (vec TraceLog) query;
+  "get_traces_by_method": (text) -> (vec TraceLog) query;
+  "get_traces_by_status": (text) -> (vec TraceLog) query;
+  "get_traces_by_status_paginated": (text, nat64, nat64) -> (vec TraceLog) query;
+  "get_traces_with_filters": (opt vec text, opt vec text, opt vec text) -> (vec TraceLog) query;
+  "get_traces_statistics": () -> (record { total_count: nat64; success_count: nat64; error_count: nat64 }) query;
+  "get_traces_statistics_by_account": (text, opt nat64, opt nat64) -> (record { total_count: nat64; total_amount: nat; success_amount: nat; failed_amount: nat }) query;
+  "record_trace_call": (text, text, text, text, text, text, IOValue, IOValue, text, opt text) -> (variant { Ok: null; Err: text });
 
   // AIO Protocol Index API
   "create_aio_index_from_json": (text, text) -> (variant { Ok; Err: text });
@@ -333,11 +389,10 @@ service : {
   "add_token_balance": (text, nat64) -> (variant { Ok: AccountInfo; Err: text });
   "get_balance_summary": (text) -> (record { total_count: nat64; total_amount: nat64; success_count: nat64; unclaimed_balance: nat64 }) query;
   "get_traces_by_operation": (text, text) -> (vec TraceItem) query;
-  "get_traces_by_status": (text, TransferStatus) -> (vec TraceItem) query;
+  "get_traces_by_transfer_status": (text, TransferStatus) -> (vec TraceItem) query;
   "get_traces_by_time_period": (text, text) -> (vec TraceItem) query;
   "get_traces_sorted": (text, text, bool) -> (vec TraceItem) query;
-  "get_traces_with_filters": (text, opt vec text, opt vec TransferStatus, opt nat64, opt nat64, opt nat, opt nat, opt vec Account) -> (vec TraceItem) query;
-  "get_traces_statistics": (text, opt nat64, opt nat64) -> (record { total_count: nat64; total_amount: nat; success_amount: nat; failed_amount: nat }) query;
+  "get_traces_with_advanced_filters": (text, opt vec text, opt vec TransferStatus, opt nat64, opt nat64, opt nat, opt nat, opt vec Account) -> (vec TraceItem) query;
 
   // Token Economy Service
   "convert_aio_to_credits": (text, nat64) -> (variant { Ok: nat64; Err: text });
@@ -394,4 +449,6 @@ service : {
   "get_mcp_grants_by_status": (TokenGrantStatus) -> (vec NewMcpGrant) query;
   "get_mcp_grants_count": () -> (nat64) query;
   "create_and_claim_newmcp_grant": (text, text) -> (variant { Ok: nat64; Err: text });
+
+  get_mcp_stack_records_paginated : (text, nat64, nat64) -> (vec McpStackRecord);
 }

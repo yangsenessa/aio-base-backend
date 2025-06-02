@@ -7,10 +7,11 @@ mod account_storage;
 mod trace_storage;
 pub mod token_economy_types;
 pub mod token_economy;
+pub mod stable_mem_storage;
 
 use agent_asset_types::AgentItem;
-use mcp_asset_types::McpItem;
-use trace_storage::{TraceItem, TransferStatus as TraceTransferStatus};
+use mcp_asset_types::{McpItem, McpStackRecord};
+use trace_storage::{TraceLog, IOValue};
 use ic_cdk::caller;
 use aio_protocal_types::AioIndexManager;
 use serde_json;
@@ -25,6 +26,8 @@ use token_economy_types::{
     NewMcpGrant
 };
 use token_economy::{record_token_activity, record_credit_activity};
+use crate::stable_mem_storage::INVERTED_INDEX_STORE;
+use candid::{CandidType, Deserialize};
 
 pub use account_storage::*;
 pub use trace_storage::*;
@@ -211,9 +214,9 @@ fn update_agent_item(index: u64, mut agent: AgentItem) -> Result<(), String> {
 // ==== MCP Asset API ====
 
 #[ic_cdk::query]
-fn get_mcp_item(index: u64) -> Option<McpItem> {
-    ic_cdk::println!("CALL[get_mcp_item] Input: index={}", index);
-    let result = mcp_asset_types::get_mcp_item(index);
+fn get_mcp_item(name: String) -> Option<McpItem> {
+    ic_cdk::println!("CALL[get_mcp_item] Input: name={}", name);
+    let result = mcp_asset_types::get_mcp_item(name);
     ic_cdk::println!("CALL[get_mcp_item] Output: {:?}", result);
     result
 }
@@ -236,7 +239,7 @@ fn get_user_mcp_items() -> Vec<McpItem> {
 }
 
 #[ic_cdk::query]
-fn get_mcp_items_paginated(offset: u64, limit: usize) -> Vec<McpItem> {
+fn get_mcp_items_paginated(offset: u64, limit: u64) -> Vec<McpItem> {
     ic_cdk::println!("CALL[get_mcp_items_paginated] Input: offset={}, limit={}", offset, limit);
     let result = mcp_asset_types::get_mcp_items_paginated(offset, limit);
     ic_cdk::println!("CALL[get_mcp_items_paginated] Output: count={}", result.len());
@@ -255,13 +258,13 @@ fn get_user_mcp_items_paginated(offset: u64, limit: usize) -> Vec<McpItem> {
 #[ic_cdk::query]
 fn get_mcp_item_by_name(name: String) -> Option<McpItem> {
     ic_cdk::println!("CALL[get_mcp_item_by_name] Input: name={}", name);
-    let result = mcp_asset_types::get_mcp_item_by_name(name);
+    let result = mcp_asset_types::get_mcp_item(name);
     ic_cdk::println!("CALL[get_mcp_item_by_name] Output: exists={}", result.is_some());
     result
 }
 
 #[ic_cdk::update]
-fn add_mcp_item(mcp: McpItem, principalid: String) -> Result<u64, String> {
+fn add_mcp_item(mcp: McpItem, principalid: String) -> Result<String, String> {
     let caller_id = principalid;
     ic_cdk::println!("CALL[add_mcp_item] Input: caller_id={}, mcp={:?}", caller_id, mcp);
     let result = mcp_asset_types::add_mcp_item(mcp, caller_id);
@@ -270,11 +273,11 @@ fn add_mcp_item(mcp: McpItem, principalid: String) -> Result<u64, String> {
 }
 
 #[ic_cdk::update]
-fn update_mcp_item(index: u64, mut mcp: McpItem) -> Result<(), String> {
+fn update_mcp_item(name: String, mut mcp: McpItem) -> Result<(), String> {
     let caller_id = caller().to_string();
-    ic_cdk::println!("CALL[update_mcp_item] Input: caller_id={}, index={}, mcp={:?}", caller_id, index, mcp);
+    ic_cdk::println!("CALL[update_mcp_item] Input: caller_id={}, name={}, mcp={:?}", caller_id, name, mcp);
     mcp.owner = caller_id;
-    let result = mcp_asset_types::update_mcp_item(index, mcp);
+    let result = mcp_asset_types::update_mcp_item(name, mcp);
     ic_cdk::println!("CALL[update_mcp_item] Output: {:?}", result);
     result
 }
@@ -286,12 +289,19 @@ fn delete_mcp_item(name: String) -> Result<(), String> {
     // First delete the MCP item
     let delete_result = mcp_asset_types::delete_mcp_item(name.clone());
     
-    // If MCP deletion was successful, also delete the inverted index
     if delete_result.is_ok() {
         // Delete the inverted index
         let index_result = aio_invert_index_types::delete_inverted_index_by_mcp(name.clone());
         if index_result.is_err() {
             ic_cdk::println!("Warning: Failed to delete inverted index for MCP: {}", name);
+            // We don't return error here as the MCP was successfully deleted
+        }
+
+        // Delete the index info from aio_protocal_types
+        let manager = AioIndexManager::new();
+        let protocol_result = manager.delete(&name);
+        if protocol_result.is_err() {
+            ic_cdk::println!("Warning: Failed to delete index info from aio_protocal_types for MCP: {}", name);
             // We don't return error here as the MCP was successfully deleted
         }
     }
@@ -303,76 +313,135 @@ fn delete_mcp_item(name: String) -> Result<(), String> {
 // ==== Work Ledger API - Trace System ====
 
 #[ic_cdk::query]
-fn get_trace(index: u64) -> Option<TraceItem> {
-    ic_cdk::println!("CALL[get_trace] Input: index={}", index);
-    let result = trace_storage::get_trace(index.to_string());
+fn get_trace(trace_id: String) -> Option<TraceLog> {
+    ic_cdk::println!("CALL[get_trace] Input: trace_id={}", trace_id);
+    let result = trace_storage::get_trace_by_id(trace_id);
     ic_cdk::println!("CALL[get_trace] Output: exists={}", result.is_some());
     result
 }
 
 #[ic_cdk::query]
-fn get_trace_by_id(trace_id: String) -> Option<TraceItem> {
-    ic_cdk::println!("CALL[get_trace_by_id] Input: trace_id={}", trace_id);
-    let result = trace_storage::get_trace(trace_id);
-    ic_cdk::println!("CALL[get_trace_by_id] Output: exists={}", result.is_some());
+fn get_trace_by_context(context_id: String) -> Option<TraceLog> {
+    ic_cdk::println!("CALL[get_trace_by_context] Input: context_id={}", context_id);
+    let result = trace_storage::get_trace_by_context_id(context_id);
+    ic_cdk::println!("CALL[get_trace_by_context] Output: exists={}", result.is_some());
     result
 }
 
 #[ic_cdk::query]
-fn get_user_traces() -> Vec<TraceItem> {
-    let caller_id = caller().to_string();
-    ic_cdk::println!("CALL[get_user_traces] Input: caller_id={}", caller_id);
-    let result = trace_storage::get_owner_traces(caller_id);
-    ic_cdk::println!("CALL[get_user_traces] Output: count={}", result.len());
+fn get_all_traces() -> Vec<TraceLog> {
+    ic_cdk::println!("CALL[get_all_traces] Input: none");
+    let result = trace_storage::get_all_trace_logs();
+    ic_cdk::println!("CALL[get_all_traces] Output: count={}", result.len());
     result
 }
 
 #[ic_cdk::query]
-fn get_user_traces_paginated(offset: u64, limit: usize) -> Vec<TraceItem> {
-    let caller_id = caller().to_string();
-    ic_cdk::println!("CALL[get_user_traces_paginated] Input: caller_id={}, offset={}, limit={}", caller_id, offset, limit);
-    let result = trace_storage::get_owner_traces_paginated(caller_id, offset, limit);
-    ic_cdk::println!("CALL[get_user_traces_paginated] Output: count={}", result.len());
-    result
-}
-
-#[ic_cdk::query]
-fn get_traces_paginated(offset: u64, limit: usize) -> Vec<TraceItem> {
+fn get_traces_paginated(offset: u64, limit: usize) -> Vec<TraceLog> {
     ic_cdk::println!("CALL[get_traces_paginated] Input: offset={}, limit={}", offset, limit);
-    let result = trace_storage::get_traces_paginated(offset, limit);
+    let result = trace_storage::get_traces_paginated(offset, limit as u64);
     ic_cdk::println!("CALL[get_traces_paginated] Output: count={}", result.len());
     result
 }
 
-#[ic_cdk::update]
-fn add_trace(trace: TraceItem) -> Result<(), String> {
-    println!("Input: add_trace - trace: {:?}", trace);
-    
-    let result = trace_storage::upsert_trace(trace);
-    
-    println!("Output: add_trace - result: {:?}", result);
+#[ic_cdk::query]
+fn get_traces_by_protocol(protocol: String) -> Vec<TraceLog> {
+    ic_cdk::println!("CALL[get_traces_by_protocol] Input: protocol={}", protocol);
+    let result = trace_storage::get_traces_by_protocol_name(protocol);
+    ic_cdk::println!("CALL[get_traces_by_protocol] Output: count={}", result.len());
     result
 }
 
-// Helper function unchanged
-fn time_now_string() -> String {
-    let now_nanos = ic_cdk::api::time();
-    let now_millis = now_nanos / 1_000_000;
-    
-    // We don't have the full chrono crate in IC, so manual conversion:
-    let seconds = (now_millis / 1000) as i64;
-    let days_since_epoch = seconds / 86400;
-    
-    // Very simple date algorithm for demo purposes
-    // Actual implementation would handle leap years properly
-    let year = 1970 + (days_since_epoch / 365);
-    let month = ((days_since_epoch % 365) / 30) + 1;
-    let day = (days_since_epoch % 365) % 30 + 1;
-    
-    format!("{:04}{:02}{:02}", year, month, day)
+#[ic_cdk::query]
+fn get_traces_by_method(method: String) -> Vec<TraceLog> {
+    ic_cdk::println!("CALL[get_traces_by_method] Input: method={}", method);
+    let result = trace_storage::get_traces_by_method_name(method);
+    ic_cdk::println!("CALL[get_traces_by_method] Output: count={}", result.len());
+    result
 }
 
+#[ic_cdk::query]
+fn get_traces_by_status(status: String) -> Vec<TraceLog> {
+    ic_cdk::println!("CALL[get_traces_by_status] Input: status={}", status);
+    let result = trace_storage::get_traces_by_status(status, 0, u64::MAX);
+    ic_cdk::println!("CALL[get_traces_by_status] Output: count={}", result.len());
+    result
+}
 
+#[ic_cdk::query]
+fn get_traces_by_status_paginated(status: String, offset: u64, limit: u64) -> Vec<TraceLog> {
+    ic_cdk::println!("CALL[get_traces_by_status_paginated] Input: status={}, offset={}, limit={}", status, offset, limit);
+    let result = trace_storage::get_traces_by_status(status, offset, limit);
+    ic_cdk::println!("CALL[get_traces_by_status_paginated] Output: count={}", result.len());
+    result
+}
+
+#[ic_cdk::query]
+fn get_traces_with_filters(
+    protocols: Option<Vec<String>>,
+    methods: Option<Vec<String>>,
+    statuses: Option<Vec<String>>,
+) -> Vec<TraceLog> {
+    ic_cdk::println!("CALL[get_traces_with_filters] Input: protocols={:?}, methods={:?}, statuses={:?}", protocols, methods, statuses);
+    let result = trace_storage::get_traces_with_filters(
+        protocols.unwrap_or_default(),
+        methods.unwrap_or_default(),
+        statuses.unwrap_or_default(),
+        Vec::new(), // owners
+        Vec::new(), // time_ranges
+        Vec::new(), // amount_ranges
+        Vec::new(), // status_ranges
+        u64::MAX,   // limit
+    );
+    ic_cdk::println!("CALL[get_traces_with_filters] Output: count={}", result.len());
+    result
+}
+
+#[derive(CandidType, Deserialize)]
+struct TraceStatisticsResult {
+    total_count: u64,
+    success_count: u64,
+    error_count: u64,
+}
+
+#[ic_cdk::query]
+fn get_traces_statistics() -> TraceStatistics {
+    ic_cdk::println!("CALL[get_traces_statistics] Input: none");
+    let result = trace_storage::get_traces_statistics(0, u64::MAX, u64::MAX);
+    ic_cdk::println!("CALL[get_traces_statistics] Output: total_count={}, success_count={}, error_count={}", 
+        result.total_count, result.success_count, result.error_count);
+    result
+}
+
+#[ic_cdk::update]
+fn record_trace_call(
+    trace_id: String,
+    context_id: String,
+    protocol: String,
+    agent: String,
+    call_type: String,
+    method: String,
+    input: IOValue,
+    output: IOValue,
+    status: String,
+    error_message: Option<String>,
+) -> Result<(), String> {
+    ic_cdk::println!("CALL[record_trace_call] Input: trace_id={}, context_id={}, protocol={}, method={}", trace_id, context_id, protocol, method);
+    let result = trace_storage::record_trace_call(
+        trace_id,
+        context_id,
+        protocol,
+        agent,
+        call_type,
+        method,
+        input,
+        output,
+        status,
+        error_message,
+    );
+    ic_cdk::println!("CALL[record_trace_call] Output: {:?}", result);
+    result
+}
 
 // ==== AIO Protocol Index API ====
 
@@ -510,7 +579,7 @@ fn get_aio_indices_count() -> usize {
 #[ic_cdk::query]
 fn revert_Index_find_by_keywords_strategy(keywords: Vec<String>) -> String {
     ic_cdk::println!("CALL[revert_Index_find_by_keywords_strategy] Input: keywords={:?}", keywords);
-    let result = aio_invert_index_types::INVERTED_INDEX_STORE.with(|store| {
+    let result = INVERTED_INDEX_STORE.with(|store| {
         store.borrow().find_by_keywords_strategy(&keywords)
     });
     
@@ -599,11 +668,6 @@ fn get_traces_by_operation(principal_id: String, operation: String) -> Vec<Trace
 }
 
 #[ic_cdk::query]
-fn get_traces_by_status(principal_id: String, status: TraceTransferStatus) -> Vec<TraceItem> {
-    trace_storage::get_traces_by_status(principal_id, status)
-}
-
-#[ic_cdk::query]
 fn get_traces_by_time_period(principal_id: String, time_period: String) -> Vec<TraceItem> {
     trace_storage::get_traces_by_time_period(principal_id, time_period)
 }
@@ -611,34 +675,6 @@ fn get_traces_by_time_period(principal_id: String, time_period: String) -> Vec<T
 #[ic_cdk::query]
 fn get_traces_sorted(principal_id: String, sort_by: String, ascending: bool) -> Vec<TraceItem> {
     trace_storage::get_traces_sorted(principal_id, sort_by, ascending)
-}
-
-#[ic_cdk::query]
-fn get_traces_with_filters(
-    principal_id: String,
-    operations: Option<Vec<String>>,
-    statuses: Option<Vec<TraceTransferStatus>>,
-    start_time: Option<u64>,
-    end_time: Option<u64>,
-    min_amount: Option<u128>,
-    max_amount: Option<u128>,
-    accounts: Option<Vec<Account>>
-) -> Vec<TraceItem> {
-    trace_storage::get_traces_with_filters(
-        principal_id,
-        operations,
-        statuses,
-        start_time,
-        end_time,
-        min_amount,
-        max_amount,
-        accounts
-    )
-}
-
-#[ic_cdk::query]
-fn get_traces_statistics(principal_id: String, start_time: Option<u64>, end_time: Option<u64>) -> (u64, u128, u128, u128) {
-    trace_storage::get_traces_statistics(principal_id, start_time, end_time)
 }
 
 // Token Economy API
@@ -847,7 +883,7 @@ fn create_and_claim_newuser_grant(principal_id: String) -> Result<u64, String> {
 
 #[ic_cdk::update]
 fn create_and_claim_newmcp_grant(principal_id: String, mcp_name: String) -> Result<u64, String> {
-    println!("Input: create_and_claim_newmcp_grant - principal_id: {}, mcp_name: {}", principal_id, mcp_name);
+    ic_cdk::println!("Input: create_and_claim_newmcp_grant - principal_id: {}, mcp_name: {}", principal_id, mcp_name);
     
     // First create a new MCP grant
     let new_grant = NewMcpGrant {
@@ -936,6 +972,14 @@ fn get_mcp_grants_count() -> u64 {
     println!("Input: get_mcp_grants_count");
     let result = token_economy::get_mcp_grants_count();
     println!("Output: get_mcp_grants_count - count: {}", result);
+    result
+}
+
+#[ic_cdk::query]
+fn get_mcp_stack_records_paginated(mcp_name: String, offset: u64, limit: u64) -> Vec<McpStackRecord> {
+    ic_cdk::println!("CALL[get_mcp_stack_records_paginated] Input: mcp_name={}, offset={}, limit={}", mcp_name, offset, limit);
+    let result = mcp_asset_types::get_mcp_stack_records_paginated(mcp_name, offset, limit);
+    ic_cdk::println!("CALL[get_mcp_stack_records_paginated] Output: count={}", result.len());
     result
 }
 

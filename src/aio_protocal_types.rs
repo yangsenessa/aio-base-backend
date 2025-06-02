@@ -8,6 +8,7 @@ use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use serde_json::Value;
+use crate::stable_mem_storage::{AIO_INDICES, KEYWORD_INDEX};
 
 type Memory = VirtualMemory<DefaultMemoryImpl>;
 
@@ -116,23 +117,6 @@ impl ic_stable_structures::Storable for AioIndex {
     }
 
     const BOUND: Bound = Bound::Bounded { max_size: 1024 * 128, is_fixed_size: false };
-}
-
-thread_local! {
-    static MEMORY_MANAGER: RefCell<MemoryManager<DefaultMemoryImpl>> = 
-        RefCell::new(MemoryManager::init(DefaultMemoryImpl::default()));
-    
-    static AIO_INDICES: RefCell<StableBTreeMap<String, AioIndex, Memory>> = RefCell::new(
-        StableBTreeMap::init(
-            MEMORY_MANAGER.with(|m| m.borrow().get(MemoryId::new(5)))
-        )
-    );
-    
-    static KEYWORD_INDEX: RefCell<StableBTreeMap<String, StringVec, Memory>> = RefCell::new(
-        StableBTreeMap::init(
-            MEMORY_MANAGER.with(|m| m.borrow().get(MemoryId::new(6)))
-        )
-    );
 }
 
 /// Manager for AioIndex storage and operations

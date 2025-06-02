@@ -1,440 +1,445 @@
-use candid::{CandidType, Decode, Encode};
-use ic_stable_structures::storable::Bound;
-use ic_stable_structures::{DefaultMemoryImpl, StableBTreeMap, StableVec};
+use candid::{CandidType, Deserialize};
 use ic_stable_structures::memory_manager::{MemoryId, MemoryManager, VirtualMemory};
-use serde::{Deserialize, Serialize};
-use std::borrow::Cow;
+use ic_stable_structures::{DefaultMemoryImpl, StableBTreeMap, Storable};
+use ic_stable_structures::storable::Bound;
 use std::cell::RefCell;
-use std::collections::HashMap;
-use icrc_ledger_types::icrc1::account::Account;
-use candid::Principal;
+use std::borrow::Cow;
+use std::cmp::Ordering;
 
-// Constants for time calculations
-const SECS_PER_MIN: u64 = 60;
-const SECS_PER_HOUR: u64 = 60 * SECS_PER_MIN;
-const SECS_PER_DAY: u64 = 24 * SECS_PER_HOUR;
-const DAYS_PER_YEAR: u64 = 365;
-const DAYS_PER_MONTH: [u64; 12] = [31,28,31,30,31,30,31,31,30,31,30,31];
+const TRACE_BUFFER_SIZE: usize = 100;
 
-#[derive(CandidType, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
-pub enum TransferStatus {
-    Pending,
-    Completed,
-    Failed,
+#[derive(CandidType, Deserialize, Clone)]
+pub struct IOValue {
+    pub data_type: String,
+    pub value: IOValueType,
 }
 
-#[derive(CandidType, Serialize, Deserialize, Clone, Debug)]
-pub struct CallItem {
-    pub id: u64,
+#[derive(CandidType, Deserialize, Clone)]
+pub enum IOValueType {
+    Text(String),
+    Number(f64),
+    Boolean(bool),
+    Object(String),
+    Array(String),
+    Null,
+}
+
+#[derive(CandidType, Deserialize, Clone)]
+pub struct ProtocolCall {
+    pub id: u32,
     pub protocol: String,
     pub agent: String,
     pub call_type: String,
     pub method: String,
-    pub inputs: Vec<IOData>,
-    pub outputs: Vec<IOData>,
+    pub input: IOValue,
+    pub output: IOValue,
     pub status: String,
+    pub error_message: Option<String>,
+    pub timestamp: u64,
 }
 
-impl ic_stable_structures::Storable for CallItem {
-    fn to_bytes(&self) -> std::borrow::Cow<[u8]> {
-        Cow::Owned(Encode!(self).expect("Failed to encode CallItem"))
-    }
-
-    fn from_bytes(bytes: std::borrow::Cow<[u8]>) -> Self {
-        Decode!(bytes.as_ref(), Self).expect("Failed to decode CallItem")
-    }
-
-    const BOUND: Bound = Bound::Bounded { max_size: 1024 * 32, is_fixed_size: false };
-}
-
-#[derive(CandidType, Serialize, Deserialize, Clone, Debug)]
-pub struct IOData {
-    pub data_type: String,
-    pub value: String,
-}
-
-impl ic_stable_structures::Storable for IOData {
-    fn to_bytes(&self) -> std::borrow::Cow<[u8]> {
-        Cow::Owned(Encode!(self).expect("Failed to encode IOData"))
-    }
-
-    fn from_bytes(bytes: std::borrow::Cow<[u8]>) -> Self {
-        Decode!(bytes.as_ref(), Self).expect("Failed to decode IOData")
-    }
-
-    const BOUND: Bound = Bound::Bounded { max_size: 1024, is_fixed_size: false };
-}
-
-#[derive(CandidType, Serialize, Deserialize, Clone, Debug)]
-pub struct TraceItem {
-    pub context_id: String,
+#[derive(CandidType, Deserialize, Clone)]
+pub struct TraceLog {
     pub trace_id: String,
-    pub owner: String,
-    pub created_at: u64,
-    pub updated_at: u64,
-    pub calls: Vec<CallItem>,
-    pub metadata: Option<String>,
+    pub context_id: String,
+    pub calls: Vec<ProtocolCall>,
 }
 
-impl ic_stable_structures::Storable for TraceItem {
-    fn to_bytes(&self) -> std::borrow::Cow<[u8]> {
-        Cow::Owned(Encode!(self).expect("Failed to encode TraceItem"))
-    }
-
-    fn from_bytes(bytes: std::borrow::Cow<[u8]>) -> Self {
-        Decode!(bytes.as_ref(), Self).expect("Failed to decode TraceItem")
-    }
-
-    const BOUND: Bound = Bound::Bounded { max_size: 1024 * 64, is_fixed_size: false };
+#[derive(CandidType, Deserialize, Clone, Debug)]
+pub struct TraceStatistics {
+    pub total_count: u64,
+    pub success_count: u64,
+    pub error_count: u64,
 }
 
-/// Format a UNIX timestamp (seconds since epoch) into a string.
-/// Supported formats: "YYYY-MM-DD", "YYYY-MM", "YYYY-MM-DD-HH", "YYYY", "%V" (ISO week), "%A" (weekday), "%B" (month name), "%H" (hour)
-fn format_time(timestamp: u64, fmt: &str) -> String {
-    // Basic calculation for UTC time
-    let mut secs = timestamp;
-    let mut year = 1970;
-    let mut month = 1;
-    let mut day = 1;
-    let mut hour = 0;
-    let mut min = 0;
-    let mut sec = 0;
-    
-    // Calculate year
-    let mut days = secs / SECS_PER_DAY;
-    secs %= SECS_PER_DAY;
-    while days >= if is_leap_year(year) { 366 } else { 365 } {
-        days -= if is_leap_year(year) { 366 } else { 365 };
-        year += 1;
-    }
-    
-    // Calculate month
-    let mut month_days = DAYS_PER_MONTH;
-    if is_leap_year(year) { month_days[1] = 29; }
-    for (i, &mdays) in month_days.iter().enumerate() {
-        if days + 1 > mdays {
-            days -= mdays;
-            month += 1;
-        } else {
-            break;
-        }
-    }
-    
-    day += days as u32;
-    hour = (secs / SECS_PER_HOUR) as u32;
-    secs %= SECS_PER_HOUR;
-    min = (secs / SECS_PER_MIN) as u32;
-    sec = (secs % SECS_PER_MIN) as u32;
-    
-    match fmt {
-        "%Y-%m-%d" => format!("{:04}-{:02}-{:02}", year, month, day),
-        "%Y-%m" => format!("{:04}-{:02}", year, month),
-        "%Y" => format!("{:04}", year),
-        "%Y-%m-%d-%H" => format!("{:04}-{:02}-{:02}-{:02}", year, month, day, hour),
-        "%H" => format!("{:02}", hour),
-        "%A" => weekday_name(year, month, day),
-        "%B" => month_name(month),
-        "%V" => iso_week_number(year, month, day).to_string(),
-        _ => format!("{:04}-{:02}-{:02}", year, month, day),
+#[derive(CandidType, Deserialize, Clone, Hash, Eq, PartialEq)]
+pub struct TraceKey {
+    pub trace_id: String,
+}
+
+impl Ord for TraceKey {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.trace_id.cmp(&other.trace_id)
     }
 }
 
-fn is_leap_year(year: u64) -> bool {
-    (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)
-}
-
-fn month_name(month: u32) -> String {
-    match month {
-        1 => "January", 2 => "February", 3 => "March", 4 => "April", 5 => "May", 6 => "June",
-        7 => "July", 8 => "August", 9 => "September", 10 => "October", 11 => "November", 12 => "December",
-        _ => "Unknown"
-    }.to_string()
-}
-
-fn weekday_name(year: u64, month: u32, day: u32) -> String {
-    // Zeller's congruence
-    let (y, m) = if month < 3 { (year - 1, month + 12) } else { (year, month) };
-    let k = y % 100;
-    let j = y / 100;
-    let h = (day as u64 + (13 * (m as u64 + 1)) / 5 + k + k / 4 + j / 4 + 5 * j) % 7;
-    match h {
-        0 => "Saturday", 1 => "Sunday", 2 => "Monday", 3 => "Tuesday", 4 => "Wednesday", 5 => "Thursday", 6 => "Friday", _ => "Unknown"
-    }.to_string()
-}
-
-fn iso_week_number(year: u64, month: u32, day: u32) -> u32 {
-    // Simple ISO week calculation (not 100% accurate for all edge cases)
-    let y = year as i32;
-    let m = month as i32;
-    let d = day as i32;
-    let mut a = (14 - m) / 12;
-    let y = y - a;
-    let m = m + 12 * a - 2;
-    let dow = (d + y + y/4 - y/100 + y/400 + (31*m)/12) % 7;
-    let mut doy = d;
-    for i in 1..m { doy += DAYS_PER_MONTH[(i-1) as usize] as i32; }
-    ((doy - dow + 10) / 7) as u32
-}
-
-fn transfer_status_from_str(s: &str) -> TransferStatus {
-    match s {
-        "Completed" => TransferStatus::Completed,
-        "Failed" => TransferStatus::Failed,
-        _ => TransferStatus::Pending,
+impl PartialOrd for TraceKey {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
     }
+}
+
+#[derive(CandidType, Deserialize, Clone)]
+pub struct TraceItem {
+    pub trace_id: String,
+    pub context_id: String,
+    pub protocol: String,
+    pub agent: String,
+    pub call_type: String,
+    pub method: String,
+    pub input: IOValue,
+    pub output: IOValue,
+    pub status: String,
+    pub error_message: Option<String>,
+    pub timestamp: u64,
 }
 
 type Memory = VirtualMemory<DefaultMemoryImpl>;
 
-// Define the key for trace data
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct TraceKey {
-    pub id: String,
-}
-
-impl ic_stable_structures::Storable for TraceKey {
-    fn to_bytes(&self) -> std::borrow::Cow<[u8]> {
-        Cow::Owned(Encode!(&self.id).expect("Failed to encode TraceKey"))
-    }
-
-    fn from_bytes(bytes: std::borrow::Cow<[u8]>) -> Self {
-        let id = Decode!(bytes.as_ref(), String).expect("Failed to decode TraceKey");
-        Self { id }
-    }
-
-    const BOUND: Bound = Bound::Bounded { max_size: 1024, is_fixed_size: false };
-}
-
 thread_local! {
-    static MEMORY_MANAGER: RefCell<MemoryManager<DefaultMemoryImpl>> = 
-        RefCell::new(MemoryManager::init(DefaultMemoryImpl::default()));
-    
-    static TRACES: RefCell<StableBTreeMap<TraceKey, TraceItem, Memory>> = RefCell::new(
+    static MEMORY_MANAGER: RefCell<MemoryManager<DefaultMemoryImpl>> = RefCell::new(
+        MemoryManager::init(DefaultMemoryImpl::default())
+    );
+
+    static TRACE_STORAGE: RefCell<StableBTreeMap<String, TraceLog, Memory>> = RefCell::new(
         StableBTreeMap::init(
-            MEMORY_MANAGER.with(|m| m.borrow().get(MemoryId::new(11)))
+            MEMORY_MANAGER.with(|m| m.borrow().get(MemoryId::new(0)))
         )
     );
 }
 
-/// Add or update a trace item
-pub fn upsert_trace(trace: TraceItem) -> Result<(), String> {
-    TRACES.with(|traces| {
-        let mut traces = traces.borrow_mut();
-        let key = TraceKey { id: trace.trace_id.clone() };
-        traces.insert(key, trace);
+impl Storable for IOValue {
+    const BOUND: Bound = Bound::Unbounded;
+
+    fn to_bytes(&self) -> Cow<[u8]> {
+        Cow::Owned(candid::encode_one(self).unwrap())
+    }
+
+    fn from_bytes(bytes: Cow<[u8]>) -> Self {
+        candid::decode_one(&bytes).unwrap()
+    }
+}
+
+impl Storable for IOValueType {
+    const BOUND: Bound = Bound::Unbounded;
+
+    fn to_bytes(&self) -> Cow<[u8]> {
+        Cow::Owned(candid::encode_one(self).unwrap())
+    }
+
+    fn from_bytes(bytes: Cow<[u8]>) -> Self {
+        candid::decode_one(&bytes).unwrap()
+    }
+}
+
+impl Storable for ProtocolCall {
+    const BOUND: Bound = Bound::Unbounded;
+
+    fn to_bytes(&self) -> Cow<[u8]> {
+        Cow::Owned(candid::encode_one(self).unwrap())
+    }
+
+    fn from_bytes(bytes: Cow<[u8]>) -> Self {
+        candid::decode_one(&bytes).unwrap()
+    }
+}
+
+impl Storable for TraceLog {
+    const BOUND: Bound = Bound::Unbounded;
+
+    fn to_bytes(&self) -> Cow<[u8]> {
+        Cow::Owned(candid::encode_one(self).unwrap())
+    }
+
+    fn from_bytes(bytes: Cow<[u8]>) -> Self {
+        candid::decode_one(&bytes).unwrap()
+    }
+}
+
+impl Storable for TraceKey {
+    const BOUND: Bound = Bound::Unbounded;
+
+    fn to_bytes(&self) -> Cow<[u8]> {
+        Cow::Owned(candid::encode_one(self).unwrap())
+    }
+
+    fn from_bytes(bytes: Cow<[u8]>) -> Self {
+        candid::decode_one(&bytes).unwrap()
+    }
+}
+
+impl Storable for TraceItem {
+    const BOUND: Bound = Bound::Unbounded;
+
+    fn to_bytes(&self) -> Cow<[u8]> {
+        Cow::Owned(candid::encode_one(self).unwrap())
+    }
+
+    fn from_bytes(bytes: Cow<[u8]>) -> Self {
+        candid::decode_one(&bytes).unwrap()
+    }
+}
+
+pub fn record_trace_call(
+    trace_id: String,
+    context_id: String,
+    protocol: String,
+    agent: String,
+    call_type: String,
+    method: String,
+    input: IOValue,
+    output: IOValue,
+    status: String,
+    error_message: Option<String>,
+) -> Result<(), String> {
+    TRACE_STORAGE.with(|storage| {
+        let mut storage = storage.borrow_mut();
+        let mut trace_log = storage.get(&trace_id).unwrap_or_else(|| TraceLog {
+            trace_id: trace_id.clone(),
+            context_id,
+            calls: Vec::new(),
+        });
+
+        let call = ProtocolCall {
+            id: trace_log.calls.len() as u32 + 1,
+            protocol,
+            agent,
+            call_type,
+            method,
+            input,
+            output,
+            status,
+            error_message,
+            timestamp: ic_cdk::api::time(),
+        };
+
+        trace_log.calls.push(call);
+
+        // Trim buffer if it exceeds maximum size
+        if trace_log.calls.len() > TRACE_BUFFER_SIZE {
+            trace_log.calls.drain(0..trace_log.calls.len() - TRACE_BUFFER_SIZE);
+        }
+
+        storage.insert(trace_id, trace_log);
         Ok(())
     })
 }
 
-/// Get a trace item by ID
-pub fn get_trace(id: String) -> Option<TraceItem> {
-    TRACES.with(|traces| {
-        let traces = traces.borrow();
-        let key = TraceKey { id };
-        traces.get(&key).map(|trace| trace.clone())
+pub fn get_trace_by_id(trace_id: String) -> Option<TraceLog> {
+    TRACE_STORAGE.with(|storage| storage.borrow().get(&trace_id))
+}
+
+pub fn get_trace_by_context_id(context_id: String) -> Option<TraceLog> {
+    TRACE_STORAGE.with(|storage| {
+        storage
+            .borrow()
+            .iter()
+            .find(|(_, trace)| trace.context_id == context_id)
+            .map(|(_, trace)| trace.clone())
     })
 }
 
-/// Get all traces for a specific owner
-pub fn get_owner_traces(owner: String) -> Vec<TraceItem> {
-    TRACES.with(|traces| {
-        let traces = traces.borrow();
-        traces.iter()
-            .filter(|(_, trace)| trace.owner == owner)
-            .map(|(_, trace)| trace)
+pub fn get_all_trace_logs() -> Vec<TraceLog> {
+    TRACE_STORAGE.with(|storage| {
+        storage
+            .borrow()
+            .iter()
+            .map(|(_, trace)| trace.clone())
             .collect()
     })
 }
 
-/// Get all traces
-pub fn get_all_traces() -> Vec<TraceItem> {
-    TRACES.with(|traces| {
-        let traces = traces.borrow();
-        traces.iter().map(|(_, trace)| trace).collect()
-    })
-}
-
-/// Get traces with pagination
-pub fn get_traces_paginated(offset: u64, limit: usize) -> Vec<TraceItem> {
-    TRACES.with(|traces| {
-        let traces = traces.borrow();
-        traces
+pub fn get_traces_paginated(offset: u64, limit: u64) -> Vec<TraceLog> {
+    TRACE_STORAGE.with(|storage| {
+        storage
+            .borrow()
             .iter()
             .skip(offset as usize)
-            .take(limit)
-            .map(|(_, trace)| trace)
+            .take(limit as usize)
+            .map(|(_, trace)| trace.clone())
             .collect()
     })
 }
 
-/// Get owner traces with pagination
-pub fn get_owner_traces_paginated(owner: String, offset: u64, limit: usize) -> Vec<TraceItem> {
-    TRACES.with(|traces| {
-        let traces = traces.borrow();
-        traces.iter()
-            .filter(|(_, trace)| trace.owner == owner)
-            .map(|(_, trace)| trace)
+pub fn get_traces_by_protocol_name(protocol: String) -> Vec<TraceLog> {
+    TRACE_STORAGE.with(|storage| {
+        storage
+            .borrow()
+            .iter()
+            .filter(|(_, trace)| {
+                trace.calls.iter().any(|call| call.protocol == protocol)
+            })
+            .map(|(_, trace)| trace.clone())
+            .collect()
+    })
+}
+
+pub fn get_traces_by_method_name(method: String) -> Vec<TraceLog> {
+    TRACE_STORAGE.with(|storage| {
+        storage
+            .borrow()
+            .iter()
+            .filter(|(_, trace)| {
+                trace.calls.iter().any(|call| call.method == method)
+            })
+            .map(|(_, trace)| trace.clone())
+            .collect()
+    })
+}
+
+pub fn get_traces_by_status(status: String, offset: u64, limit: u64) -> Vec<TraceLog> {
+    TRACE_STORAGE.with(|storage| {
+        storage
+            .borrow()
+            .iter()
+            .filter(|(_, trace)| {
+                trace.calls.iter().any(|call| call.status == status)
+            })
             .skip(offset as usize)
-            .take(limit)
+            .take(limit as usize)
+            .map(|(_, trace)| trace.clone())
             .collect()
     })
 }
 
-/// Delete a trace
-pub fn delete_trace(id: String) -> Result<(), String> {
-    TRACES.with(|traces| {
-        let mut traces = traces.borrow_mut();
-        let key = TraceKey { id };
-        if traces.remove(&key).is_some() {
-            Ok(())
-        } else {
-            Err("Trace not found".to_string())
+pub fn get_traces_with_filters(
+    protocols: Vec<String>,
+    methods: Vec<String>,
+    statuses: Vec<String>,
+    owners: Vec<String>,
+    time_ranges: Vec<(u64, u64)>,
+    amount_ranges: Vec<(u64, u64)>,
+    status_ranges: Vec<String>,
+    limit: u64,
+) -> Vec<TraceLog> {
+    TRACE_STORAGE.with(|storage| {
+        storage
+            .borrow()
+            .iter()
+            .filter(|(_, trace)| {
+                trace.calls.iter().any(|call| {
+                    (protocols.is_empty() || protocols.contains(&call.protocol))
+                        && (methods.is_empty() || methods.contains(&call.method))
+                        && (statuses.is_empty() || statuses.contains(&call.status))
+                })
+            })
+            .take(limit as usize)
+            .map(|(_, trace)| trace.clone())
+            .collect()
+    })
+}
+
+pub fn get_traces_statistics(
+    start_time: u64,
+    end_time: u64,
+    limit: u64,
+) -> TraceStatistics {
+    TRACE_STORAGE.with(|storage| {
+        let mut total_count = 0u64;
+        let mut success_count = 0u64;
+        let mut error_count = 0u64;
+
+        for (_, trace) in storage.borrow().iter() {
+            for call in &trace.calls {
+                if call.status == "ok" {
+                    success_count += 1;
+                } else {
+                    error_count += 1;
+                }
+                total_count += 1;
+            }
+        }
+
+        TraceStatistics {
+            total_count,
+            success_count,
+            error_count,
         }
     })
 }
 
-/// Get traces by operation type
-pub fn get_traces_by_operation(owner: String, operation: String) -> Vec<TraceItem> {
-    TRACES.with(|traces| {
-        let traces = traces.borrow();
-        traces.iter()
-            .filter(|(_, trace)| trace.owner == owner && trace.calls.get(0).map_or(false, |call| call.method == operation))
-            .map(|(_, trace)| trace)
+pub fn get_traces_by_operation(principal_id: String, operation: String) -> Vec<TraceItem> {
+    TRACE_STORAGE.with(|storage| {
+        storage
+            .borrow()
+            .iter()
+            .filter(|(_, trace)| {
+                trace.calls.iter().any(|call| {
+                    call.agent == principal_id && call.method == operation
+                })
+            })
+            .map(|(_, trace)| {
+                trace.calls.iter().map(|call| {
+                    TraceItem {
+                        trace_id: trace.trace_id.clone(),
+                        context_id: trace.context_id.clone(),
+                        protocol: call.protocol.clone(),
+                        agent: call.agent.clone(),
+                        call_type: call.call_type.clone(),
+                        method: call.method.clone(),
+                        input: call.input.clone(),
+                        output: call.output.clone(),
+                        status: call.status.clone(),
+                        error_message: call.error_message.clone(),
+                        timestamp: ic_cdk::api::time(),
+                    }
+                }).collect::<Vec<TraceItem>>()
+            })
+            .flatten()
             .collect()
     })
 }
 
-/// Get traces by status
-pub fn get_traces_by_status(owner: String, status: TransferStatus) -> Vec<TraceItem> {
-    TRACES.with(|traces| {
-        let traces = traces.borrow();
-        traces.iter()
-            .filter(|(_, trace)| trace.owner == owner && trace.calls.get(0).map_or(false, |call| call.status == format!("{:?}", status)))
-            .map(|(_, trace)| trace)
-            .collect()
-    })
-}
-
-/// Get traces by time period
-pub fn get_traces_by_time_period(owner: String, time_period: String) -> Vec<TraceItem> {
-    TRACES.with(|traces| {
-        let traces = traces.borrow();
-        traces.iter()
-            .filter(|(_, trace)| trace.owner == owner)
-            .map(|(_, trace)| trace)
-            .collect()
-    })
-}
-
-/// Get traces with sorting
-pub fn get_traces_sorted(owner: String, sort_by: String, ascending: bool) -> Vec<TraceItem> {
-    let mut traces = get_owner_traces(owner);
+pub fn get_traces_sorted(principal_id: String, sort_by: String, ascending: bool) -> Vec<TraceItem> {
+    let mut traces = get_traces_by_operation(principal_id, "all".to_string());
     
-    match sort_by.as_str() {
-        "amount" => {
-            traces.sort_by(|a, b| {
-                let a_amount = a.calls.get(0).map_or(0, |call| call.inputs[0].value.parse::<u64>().unwrap_or(0));
-                let b_amount = b.calls.get(0).map_or(0, |call| call.inputs[0].value.parse::<u64>().unwrap_or(0));
-                if ascending {
-                    a_amount.cmp(&b_amount)
-                } else {
-                    b_amount.cmp(&a_amount)
-                }
-            });
-        },
-        "time" => {
-            traces.sort_by(|a, b| {
-                if ascending {
-                    a.created_at.cmp(&b.created_at)
-                } else {
-                    b.created_at.cmp(&a.created_at)
-                }
-            });
-        },
-        _ => {
-            traces.sort_by(|a, b| {
-                if ascending {
-                    a.created_at.cmp(&b.created_at)
-                } else {
-                    b.created_at.cmp(&a.created_at)
-                }
-            });
+    traces.sort_by(|a, b| {
+        let comparison = match sort_by.as_str() {
+            "timestamp" => a.timestamp.cmp(&b.timestamp),
+            "method" => a.method.cmp(&b.method),
+            "status" => a.status.cmp(&b.status),
+            _ => a.timestamp.cmp(&b.timestamp),
+        };
+        
+        if ascending {
+            comparison
+        } else {
+            comparison.reverse()
         }
-    }
+    });
     
     traces
 }
 
-/// Get traces with filters
-pub fn get_traces_with_filters(
-    owner: String,
-    operations: Option<Vec<String>>,
-    statuses: Option<Vec<TransferStatus>>,
-    start_time: Option<u64>,
-    end_time: Option<u64>,
-    min_amount: Option<u128>,
-    max_amount: Option<u128>,
-    accounts: Option<Vec<Account>>
-) -> Vec<TraceItem> {
-    TRACES.with(|traces| {
-        let traces = traces.borrow();
-        traces.iter()
+pub fn get_traces_by_time_period(principal_id: String, time_period: String) -> Vec<TraceItem> {
+    let current_time = ic_cdk::api::time();
+    let period_seconds = match time_period.as_str() {
+        "day" => 24 * 60 * 60 * 1_000_000_000,
+        "week" => 7 * 24 * 60 * 60 * 1_000_000_000,
+        "month" => 30 * 24 * 60 * 60 * 1_000_000_000,
+        "year" => 365 * 24 * 60 * 60 * 1_000_000_000,
+        _ => return Vec::new(),
+    };
+    
+    let start_time = current_time - period_seconds;
+    
+    TRACE_STORAGE.with(|storage| {
+        storage
+            .borrow()
+            .iter()
             .filter(|(_, trace)| {
-                let matches_owner = trace.owner == owner;
-                let matches_operation = operations.as_ref()
-                    .map(|ops| ops.iter().any(|op| trace.calls.get(0).map_or(false, |call| call.method == *op)))
-                    .unwrap_or(true);
-                let matches_status = statuses.as_ref()
-                    .map(|statuses| statuses.contains(&trace.calls.get(0).map_or(TransferStatus::Pending, |call| {
-                        transfer_status_from_str(&call.status)
-                    })))
-                    .unwrap_or(true);
-                let matches_time = start_time.map(|start| trace.created_at >= start).unwrap_or(true)
-                    && end_time.map(|end| trace.created_at <= end).unwrap_or(true);
-                let matches_amount = min_amount.as_ref()
-                    .map(|min| trace.calls.get(0).map_or(0u64, |call| call.inputs[0].value.parse::<u64>().unwrap_or(0u64)) >= *min as u64)
-                    .unwrap_or(true)
-                    && max_amount.as_ref()
-                    .map(|max| trace.calls.get(0).map_or(0u64, |call| call.inputs[0].value.parse::<u64>().unwrap_or(0u64)) <= *max as u64)
-                    .unwrap_or(true);
-                let matches_account = accounts.as_ref()
-                    .map(|accounts| accounts.contains(&trace.calls.get(0).map_or(Account { owner: Principal::anonymous(), subaccount: None }, |call| {
-                        Account {
-                            owner: Principal::from_text(&call.agent).unwrap_or(Principal::anonymous()),
-                            subaccount: None,
-                        }
-                    })))
-                    .unwrap_or(true);
-
-                matches_owner && matches_operation && matches_status && matches_time && matches_amount && matches_account
+                trace.calls.iter().any(|call| {
+                    call.agent == principal_id && call.timestamp >= start_time
+                })
             })
-            .map(|(_, trace)| trace)
+            .map(|(_, trace)| {
+                trace.calls.iter().map(|call| {
+                    TraceItem {
+                        trace_id: trace.trace_id.clone(),
+                        context_id: trace.context_id.clone(),
+                        protocol: call.protocol.clone(),
+                        agent: call.agent.clone(),
+                        call_type: call.call_type.clone(),
+                        method: call.method.clone(),
+                        input: call.input.clone(),
+                        output: call.output.clone(),
+                        status: call.status.clone(),
+                        error_message: call.error_message.clone(),
+                        timestamp: call.timestamp,
+                    }
+                }).collect::<Vec<TraceItem>>()
+            })
+            .flatten()
             .collect()
     })
-}
-
-/// Get trace statistics
-pub fn get_traces_statistics(owner: String, start_time: Option<u64>, end_time: Option<u64>) -> (u64, u128, u128, u128) {
-    let traces = get_owner_traces(owner);
-    let filtered_traces: Vec<&TraceItem> = traces.iter()
-        .filter(|trace| {
-            start_time.map(|start| trace.created_at >= start).unwrap_or(true)
-                && end_time.map(|end| trace.created_at <= end).unwrap_or(true)
-        })
-        .collect();
-
-    let total_count = filtered_traces.len() as u64;
-    let total_amount: u128 = filtered_traces.iter()
-        .map(|trace| trace.calls.get(0).map_or(0u64, |call| call.inputs[0].value.parse::<u64>().unwrap_or(0u64)) as u128)
-        .sum();
-    let success_amount: u128 = filtered_traces.iter()
-        .filter(|trace| trace.calls.get(0).map_or(false, |call| call.status == format!("{:?}", TransferStatus::Completed)))
-        .map(|trace| trace.calls.get(0).map_or(0u64, |call| call.inputs[0].value.parse::<u64>().unwrap_or(0u64)) as u128)
-        .sum();
-    let failed_amount: u128 = filtered_traces.iter()
-        .filter(|trace| trace.calls.get(0).map_or(false, |call| call.status == format!("{:?}", TransferStatus::Failed)))
-        .map(|trace| trace.calls.get(0).map_or(0u64, |call| call.inputs[0].value.parse::<u64>().unwrap_or(0u64)) as u128)
-        .sum();
-
-    (total_count, total_amount, success_amount, failed_amount)
 } 
