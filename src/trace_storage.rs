@@ -442,4 +442,19 @@ pub fn get_traces_by_time_period(principal_id: String, time_period: String) -> V
             .flatten()
             .collect()
     })
+}
+
+pub fn get_traces_by_agentname_paginated(agent_name: String, offset: u64, limit: u64) -> Vec<TraceLog> {
+    TRACE_STORAGE.with(|storage| {
+        storage
+            .borrow()
+            .iter()
+            .filter(|(_, trace)| {
+                trace.calls.iter().any(|call| call.agent == agent_name)
+            })
+            .skip(offset as usize)
+            .take(limit as usize)
+            .map(|(_, trace)| trace.clone())
+            .collect()
+    })
 } 

@@ -291,6 +291,7 @@ fn delete_mcp_item(name: String) -> Result<(), String> {
     
     if delete_result.is_ok() {
         // Delete the inverted index
+        ic_cdk::println!("CALL[delete_mcp_item] Deleting inverted index for MCP: {}", name);
         let index_result = aio_invert_index_types::delete_inverted_index_by_mcp(name.clone());
         if index_result.is_err() {
             ic_cdk::println!("Warning: Failed to delete inverted index for MCP: {}", name);
@@ -300,6 +301,7 @@ fn delete_mcp_item(name: String) -> Result<(), String> {
         // Delete the index info from aio_protocal_types
         let manager = AioIndexManager::new();
         let protocol_result = manager.delete(&name);
+        ic_cdk::println!("CALL[delete_mcp_item] Deleting index info from aio_protocal_types for MCP: {}", name);
         if protocol_result.is_err() {
             ic_cdk::println!("Warning: Failed to delete index info from aio_protocal_types for MCP: {}", name);
             // We don't return error here as the MCP was successfully deleted
@@ -980,6 +982,14 @@ fn get_mcp_stack_records_paginated(mcp_name: String, offset: u64, limit: u64) ->
     ic_cdk::println!("CALL[get_mcp_stack_records_paginated] Input: mcp_name={}, offset={}, limit={}", mcp_name, offset, limit);
     let result = mcp_asset_types::get_mcp_stack_records_paginated(mcp_name, offset, limit);
     ic_cdk::println!("CALL[get_mcp_stack_records_paginated] Output: count={}", result.len());
+    result
+}
+
+#[ic_cdk::query]
+fn get_traces_by_agentname_paginated(agent_name: String, offset: u64, limit: u64) -> Vec<TraceLog> {
+    ic_cdk::println!("CALL[get_traces_by_agentname_paginated] Input: agent_name={}, offset={}, limit={}", agent_name, offset, limit);
+    let result = trace_storage::get_traces_by_agentname_paginated(agent_name, offset, limit);
+    ic_cdk::println!("CALL[get_traces_by_agentname_paginated] Output: count={}", result.len());
     result
 }
 

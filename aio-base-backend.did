@@ -353,6 +353,7 @@ service : {
   "get_traces_statistics": () -> (record { total_count: nat64; success_count: nat64; error_count: nat64 }) query;
   "get_traces_statistics_by_account": (text, opt nat64, opt nat64) -> (record { total_count: nat64; total_amount: nat; success_amount: nat; failed_amount: nat }) query;
   "record_trace_call": (text, text, text, text, text, text, IOValue, IOValue, text, opt text) -> (variant { Ok: null; Err: text });
+  "get_traces_by_agentname_paginated": (text, nat64, nat64) -> (vec TraceLog) query;
 
   // AIO Protocol Index API
   "create_aio_index_from_json": (text, text) -> (variant { Ok; Err: text });

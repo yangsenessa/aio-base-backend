@@ -90,18 +90,48 @@ pub struct InvertedIndexItem {
 
 impl Storable for InvertedIndexItem {
     fn to_bytes(&self) -> Cow<[u8]> {
-        let bytes = serde_json::to_vec(self).unwrap();
-        Cow::Owned(bytes)
+        match serde_json::to_vec(self) {
+            Ok(bytes) => Cow::Owned(bytes),
+            Err(e) => {
+                ic_cdk::println!("Error serializing InvertedIndexItem: {}", e);
+                Cow::Owned(vec![])
+            }
+        }
     }
 
     fn from_bytes(bytes: Cow<[u8]>) -> Self {
-        serde_json::from_slice(&bytes).unwrap()
+        if bytes.is_empty() {
+            ic_cdk::println!("Warning: Attempting to deserialize empty bytes");
+            return Self::default();
+        }
+        
+        match serde_json::from_slice(&bytes) {
+            Ok(item) => item,
+            Err(e) => {
+                ic_cdk::println!("Error deserializing InvertedIndexItem: {}", e);
+                Self::default()
+            }
+        }
     }
 
     const BOUND: ic_stable_structures::storable::Bound = ic_stable_structures::storable::Bound::Bounded {
-        max_size: 1024,
+        max_size: 10*1024,
         is_fixed_size: false,
     };
+}
+
+impl Default for InvertedIndexItem {
+    fn default() -> Self {
+        Self {
+            keyword: String::new(),
+            keyword_group: String::new(),
+            mcp_name: String::new(),
+            method_name: String::new(),
+            source_field: String::new(),
+            confidence: 0.0,
+            standard_match: String::new(),
+        }
+    }
 }
 
 pub struct InvertedIndexStore {
@@ -176,11 +206,31 @@ impl InvertedIndexStore {
 
     // Find index items by keyword
     pub fn find_by_keyword(&self, keyword: &str) -> String {
-        let items = self.items
+        let keyword_parts: Vec<String> = keyword.split('-')
+            .map(|s| s.to_lowercase())
+            .collect();
+        
+        let mut items_with_matches: Vec<(InvertedIndexItem, usize)> = self.items
             .iter()
-            .filter(|(k, _)| String::from_utf8_lossy(k).starts_with(&format!("{}:", keyword)))
-            .map(|(_, v)| v.clone())
-            .collect::<Vec<_>>();
+            .filter_map(|(k, v)| {
+                let key_str = String::from_utf8_lossy(&k).to_lowercase();
+                // Count how many parts of the keyword match in this item
+                let match_count = keyword_parts.iter()
+                    .filter(|part| key_str.contains(&part[..]))
+                    .count();
+                
+                if match_count > 0 {
+                    Some((v.clone(), match_count))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        // Sort by number of matches in descending order
+        items_with_matches.sort_by(|a, b| b.1.cmp(&a.1));
+
+        let items: Vec<InvertedIndexItem> = items_with_matches.into_iter().map(|(item, _)| item).collect();
         ic_cdk::println!("Found {} items for keyword: {}", items.len(), keyword);
         ic_cdk::println!("Found Items: {:?}", items);
         serde_json::to_string(&items).unwrap_or_else(|e| {
@@ -297,6 +347,13 @@ impl InvertedIndexStore {
 
     // Find the most suitable index item by keywords with strategy
     pub fn find_by_keywords_strategy(&self, keywords: &[String]) -> Option<InvertedIndexItem> {
+        if keywords.is_empty() {
+            ic_cdk::println!("Warning: Empty keywords provided to find_by_keywords_strategy");
+            return None;
+        }
+
+        ic_cdk::println!("Searching for keywords: {:?}", keywords);
+        
         let mut results: HashMap<String, (InvertedIndexItem, usize)> = HashMap::new();
 
         // Step 1: Split input keywords into word sequences
@@ -306,18 +363,31 @@ impl InvertedIndexStore {
                 .collect())
             .collect();
 
+        ic_cdk::println!("Input word sequences: {:?}", input_word_sequences);
+
         // Step 2: Collect all matching items
-        for keyword in keywords {
-            let items = self.find_by_keyword(keyword);
-            let items: Vec<InvertedIndexItem> = serde_json::from_str(&items).unwrap_or_default();
+        for keyword in &input_word_sequences {
+            let keyword_str = keyword.join("-");
+            let items = self.find_by_keyword(&keyword_str);
+            let items: Vec<InvertedIndexItem> = match serde_json::from_str(&items) {
+                Ok(items) => items,
+                Err(e) => {
+                    ic_cdk::println!("Error parsing items for keyword {:?}: {}", keyword, e);
+                    continue;
+                }
+            };
+            
+            ic_cdk::println!("Found {} items for keyword {:?}", items.len(), keyword);
             
             for item in items {
                 // Skip items with method_name 'help'
                 if item.method_name == "help" {
+                    ic_cdk::println!("Skipping help item for keyword {:?}", keyword);
                     continue;
                 }
                 // Skip items with confidence < 0.7
                 if item.confidence < 0.7 {
+                    ic_cdk::println!("Skipping low confidence item ({} < 0.7) for keyword {:?}", item.confidence, keyword);
                     continue;
                 }
 
@@ -326,6 +396,8 @@ impl InvertedIndexStore {
                     .split(|c| c == '-' || c == '_')
                     .map(|s| s.to_lowercase())
                     .collect();
+
+                ic_cdk::println!("Comparing stored sequence {:?} with input sequences", stored_word_sequence);
 
                 // Calculate match score for this item
                 let mut match_score = 0;
@@ -344,15 +416,17 @@ impl InvertedIndexStore {
                 }
 
                 if match_score > 0 {
+                    ic_cdk::println!("Found match with score {} for item {:?}", match_score, item);
                     let entry = results.entry(item.mcp_name.clone())
                         .or_insert_with(|| (item.clone(), 0));
-                    entry.1 += match_score; // Add match score instead of just incrementing
+                    entry.1 += match_score;
                 }
             }
         }
 
         // Return None if no matches found
         if results.is_empty() {
+            ic_cdk::println!("No matches found for any keywords");
             return None;
         }
 
@@ -382,7 +456,9 @@ impl InvertedIndexStore {
         });
 
         // Return the first (most matching) item
-        result_vec.first().map(|(item, _)| item.clone())
+        let result = result_vec.first().map(|(item, _)| item.clone());
+        ic_cdk::println!("Selected best match: {:?}", result);
+        result
     }
 }
 
