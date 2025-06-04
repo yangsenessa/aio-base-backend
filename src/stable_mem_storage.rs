@@ -107,7 +107,7 @@ thread_local! {
     );
 
     // Trace Storage (for trace_storage.rs)
-    pub static TRACES: RefCell<StableBTreeMap<crate::trace_storage::TraceKey, crate::trace_storage::TraceItem, Memory>> = RefCell::new(
+    pub static TRACE_STORAGE: RefCell<StableBTreeMap<String, crate::trace_storage::TraceLog, Memory>> = RefCell::new(
         StableBTreeMap::init(
             MEMORY_MANAGER.with(|m| m.borrow().get(MemoryId::new(11)))
         )

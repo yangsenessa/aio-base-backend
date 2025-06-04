@@ -2,6 +2,7 @@ use candid::{CandidType, Deserialize};
 use ic_stable_structures::memory_manager::{MemoryId, MemoryManager, VirtualMemory};
 use ic_stable_structures::{DefaultMemoryImpl, StableBTreeMap, Storable};
 use ic_stable_structures::storable::Bound;
+use crate::stable_mem_storage::TRACE_STORAGE;
 use std::cell::RefCell;
 use std::borrow::Cow;
 use std::cmp::Ordering;
@@ -85,18 +86,6 @@ pub struct TraceItem {
 }
 
 type Memory = VirtualMemory<DefaultMemoryImpl>;
-
-thread_local! {
-    static MEMORY_MANAGER: RefCell<MemoryManager<DefaultMemoryImpl>> = RefCell::new(
-        MemoryManager::init(DefaultMemoryImpl::default())
-    );
-
-    static TRACE_STORAGE: RefCell<StableBTreeMap<String, TraceLog, Memory>> = RefCell::new(
-        StableBTreeMap::init(
-            MEMORY_MANAGER.with(|m| m.borrow().get(MemoryId::new(0)))
-        )
-    );
-}
 
 impl Storable for IOValue {
     const BOUND: Bound = Bound::Unbounded;
