@@ -368,6 +368,7 @@ impl InvertedIndexStore {
         // Step 2: Collect all matching items
         for keyword in &input_word_sequences {
             let keyword_str = keyword.join("-");
+            ic_cdk::println!("Finding by keyword: {:?}", keyword_str);
             let items = self.find_by_keyword(&keyword_str);
             let items: Vec<InvertedIndexItem> = match serde_json::from_str(&items) {
                 Ok(items) => items,
