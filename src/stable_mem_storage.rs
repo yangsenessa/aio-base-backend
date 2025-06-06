@@ -2,6 +2,8 @@
 use ic_stable_structures::{DefaultMemoryImpl, StableBTreeMap, StableVec};
 use ic_stable_structures::memory_manager::{MemoryId, MemoryManager, VirtualMemory};
 use std::cell::RefCell;
+use crate::mining_reword::{MiningRewardPolicy, RewardEntry, UserRewardKey};
+use crate::token_economy_types::RewardIdList;
 
 // Type alias for memory
 pub type Memory = VirtualMemory<DefaultMemoryImpl>;
@@ -103,6 +105,28 @@ thread_local! {
     pub static GRANT_POLICIES: RefCell<StableBTreeMap<crate::token_economy_types::GrantAction, crate::token_economy_types::GrantPolicy, Memory>> = RefCell::new(
         StableBTreeMap::init(
             MEMORY_MANAGER.with(|m| m.borrow().get(MemoryId::new(28)))
+        )
+    );
+
+    // Mining Reward Storage
+    pub static MINING_REWARD_POLICY: RefCell<StableBTreeMap<String, MiningRewardPolicy, Memory>> = RefCell::new(
+        StableBTreeMap::init(
+            MEMORY_MANAGER.with(|m| m.borrow().get(MemoryId::new(34)))
+        )
+    );
+    pub static REWARD_ENTRIES: RefCell<StableBTreeMap<u64, RewardEntry, Memory>> = RefCell::new(
+        StableBTreeMap::init(
+            MEMORY_MANAGER.with(|m| m.borrow().get(MemoryId::new(35)))
+        )
+    );
+    pub static USER_REWARD_INDEX: RefCell<StableBTreeMap<UserRewardKey, RewardIdList, Memory>> = RefCell::new(
+        StableBTreeMap::init(
+            MEMORY_MANAGER.with(|m| m.borrow().get(MemoryId::new(36)))
+        )
+    );
+    pub static MCP_REWARD_INDEX: RefCell<StableBTreeMap<String, RewardIdList, Memory>> = RefCell::new(
+        StableBTreeMap::init(
+            MEMORY_MANAGER.with(|m| m.borrow().get(MemoryId::new(37)))
         )
     );
 

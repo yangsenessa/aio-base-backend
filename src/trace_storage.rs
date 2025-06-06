@@ -446,4 +446,45 @@ pub fn get_traces_by_agentname_paginated(agent_name: String, offset: u64, limit:
             .map(|(_, trace)| trace.clone())
             .collect()
     })
+}
+
+pub fn get_traces_for_mining_days(offset: u64, limit: u64) -> Vec<TraceItem> {
+    let current_time = ic_cdk::api::time();
+    let day_seconds = 24 * 60 * 60 * 1_000_000_000; // 一天的纳秒数
+    let start_time = current_time - day_seconds;
+
+    TRACE_STORAGE.with(|storage| {
+        storage
+            .borrow()
+            .iter()
+            .filter(|(_, trace)| {
+                trace.calls.iter().any(|call| 
+                    call.status == "ok" && call.timestamp >= start_time
+                )
+            })
+            .map(|(_, trace)| {
+                trace.calls.iter()
+                    .filter(|call| call.status == "ok" && call.timestamp >= start_time)
+                    .map(|call| {
+                        TraceItem {
+                            trace_id: trace.trace_id.clone(),
+                            context_id: trace.context_id.clone(),
+                            protocol: call.protocol.clone(),
+                            agent: call.agent.clone(),
+                            call_type: call.call_type.clone(),
+                            method: call.method.clone(),
+                            input: call.input.clone(),
+                            output: call.output.clone(),
+                            status: call.status.clone(),
+                            error_message: call.error_message.clone(),
+                            timestamp: call.timestamp,
+                        }
+                    }).collect::<Vec<TraceItem>>()
+            })
+            .flatten()
+            .skip(offset as usize)
+            .take(limit as usize)
+            .collect()
+    })
 } 
+

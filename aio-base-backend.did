@@ -329,6 +329,10 @@ service : {
   "add_agent_item": (AgentItem, text) -> (variant { Ok: nat64; Err: text });
   "update_agent_item": (nat64, AgentItem) -> (variant { Ok; Err: text });
   
+  // Mining Rewards API
+  "dispatch_mining_rewards": () -> (variant { Ok; Err: text });
+  "stop_mining_rewards": () -> (variant { Ok; Err: text });
+  
   // MCP Asset API
   "get_mcp_item": (text) -> (opt McpItem) query;
   "get_all_mcp_items": () -> (vec McpItem) query;

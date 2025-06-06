@@ -8,6 +8,7 @@ mod trace_storage;
 pub mod token_economy_types;
 pub mod token_economy;
 pub mod stable_mem_storage;
+pub mod mining_reword;
 
 use agent_asset_types::AgentItem;
 use mcp_asset_types::{McpItem, McpStackRecord};
@@ -28,9 +29,66 @@ use token_economy_types::{
 use token_economy::{record_token_activity, record_credit_activity};
 use crate::stable_mem_storage::INVERTED_INDEX_STORE;
 use candid::{CandidType, Deserialize};
+use ic_cdk_timers::TimerId;
+use std::time::Duration;
+use std::cell::RefCell;
 
 pub use account_storage::*;
 pub use trace_storage::*;
+pub use mining_reword::*;
+
+// add timer id storage
+thread_local! {
+    static MINING_TIMER_ID: RefCell<Option<TimerId>> = RefCell::new(None);
+}
+
+// add dispatch_mining_rewards function
+#[ic_cdk::update]
+fn dispatch_mining_rewards() -> Result<(), String> {
+    ic_cdk::println!("Starting mining rewards dispatch...");
+    
+    // check if there is already a timer running
+    let timer_exists = MINING_TIMER_ID.with(|timer_id| {
+        timer_id.borrow().is_some()
+    });
+    
+    if timer_exists {
+        return Err("Mining rewards dispatch is already running".to_string());
+    }
+    
+    // set timer, run once per day
+    let timer_id = ic_cdk_timers::set_timer_interval(Duration::from_secs(24 * 60 * 60), || {
+        ic_cdk::println!("Executing daily mining rewards calculation...");
+        match mining_reword::perdic_mining() {
+            Ok(_) => ic_cdk::println!("Mining rewards calculation completed"),
+            Err(e) => ic_cdk::println!("Mining rewards calculation failed: {}", e),
+        }
+    });
+    
+    // store timer id
+    MINING_TIMER_ID.with(|id| {
+        *id.borrow_mut() = Some(timer_id);
+    });
+    
+    ic_cdk::println!("Mining rewards dispatch has been started");
+    Ok(())
+}
+
+// add stop mining rewards function
+#[ic_cdk::update]
+fn stop_mining_rewards() -> Result<(), String> {
+    ic_cdk::println!("Stopping mining rewards dispatch...");
+    
+    MINING_TIMER_ID.with(|timer_id| {
+        if let Some(id) = timer_id.borrow_mut().take() {
+            ic_cdk_timers::clear_timer(id);
+            ic_cdk::println!("Mining rewards dispatch has been stopped");
+            Ok(())
+        } else {
+            Err("No mining rewards dispatch is currently running".to_string())
+        }
+    })
+}
 
 // Store inverted index
 #[ic_cdk::update]
