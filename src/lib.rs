@@ -57,7 +57,7 @@ fn dispatch_mining_rewards() -> Result<(), String> {
     }
     
     // set timer, run once per day
-    let timer_id = ic_cdk_timers::set_timer_interval(Duration::from_secs(24 * 60 * 60), || {
+    let timer_id = ic_cdk_timers::set_timer_interval(Duration::from_secs(5 * 60), || {
         ic_cdk::println!("Executing daily mining rewards calculation...");
         match mining_reword::perdic_mining() {
             Ok(_) => ic_cdk::println!("Mining rewards calculation completed"),
