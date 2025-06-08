@@ -422,7 +422,7 @@ pub fn perdic_mining() -> Result<Vec<RewardEntry>, String> {
                 // Calculate reward for each trace
                 for trace in &traces {
                     // Recheck trace status
-                    if trace.status == "claimed" {
+                    if trace.status != "ok" {
                         continue;
                     }
 
@@ -564,28 +564,94 @@ pub async fn claim_rewards(principal: Principal) -> Result<u64, String> {
         .map(|entry| entry.reward_amount)
         .sum();
 
-    // 3. Call ICRC1 transfer contract for token transfer
-    // TODO: Implement actual ICRC1 transfer call
-    // let transfer_result = icrc1_transfer(principal, total_amount).await?;
+    // 3. Call ICRC2 transfer_from contract for token transfer
+    let ledger_canister_id = Principal::from_text("mxzaz-hqaaa-aaaar-qaada-cai")
+        .map_err(|e| format!("Invalid ledger canister ID: {}", e))?;
+    
+    let transfer_args = TransferFromArgs {
+        spender_subaccount: None,
+        from: Account {
+            owner: ic_cdk::id(),
+            subaccount: None,
+        },
+        to: Account {
+            owner: principal,
+            subaccount: None,
+        },
+        amount: total_amount,
+        fee: None,
+        memo: None,
+        created_at_time: Some(ic_cdk::api::time()),
+    };
 
-    // 4. Update all reward record statuses to claimed
-    let reward_ids: Vec<u64> = REWARD_ENTRIES.with(|entries| {
-        let entries = entries.borrow();
-        entries.iter()
-            .filter(|(_, entry)| entry.principal_id == principal && entry.status == "pending")
-            .map(|(id, _)| id.clone())
-            .collect()
-    });
-
-    for id in reward_ids {
-        REWARD_ENTRIES.with(|entries| {
-            if let Some(entry) = entries.borrow().get(&id) {
-                let mut updated_entry = entry.clone();
-                updated_entry.status = "claimed".to_string();
-                entries.borrow_mut().insert(id, updated_entry);
-            }
-        });
+    #[derive(CandidType, Deserialize)]
+    struct TransferFromResult {
+        Ok: Option<u64>,
+        Err: Option<TransferFromError>,
     }
 
-    Ok(total_amount)
+    let result = ic_cdk::call::<(TransferFromArgs,), (TransferFromResult,)>(
+        ledger_canister_id,
+        "icrc2_transfer_from",
+        (transfer_args,)
+    ).await;
+
+    match result {
+        Ok((TransferFromResult { Ok: Some(block_height), Err: None },)) => {
+            // 4. Update all reward record statuses to claimed
+            let reward_ids: Vec<u64> = REWARD_ENTRIES.with(|entries| {
+                let entries = entries.borrow();
+                entries.iter()
+                    .filter(|(_, entry)| entry.principal_id == principal && entry.status == "pending")
+                    .map(|(id, _)| id.clone())
+                    .collect()
+            });
+
+            for id in reward_ids {
+                REWARD_ENTRIES.with(|entries| {
+                    if let Some(entry) = entries.borrow().get(&id) {
+                        let mut updated_entry = entry.clone();
+                        updated_entry.status = "claimed".to_string();
+                        entries.borrow_mut().insert(id, updated_entry);
+                    }
+                });
+            }
+
+            Ok(total_amount)
+        },
+        Ok((TransferFromResult { Ok: None, Err: Some(e) },)) => Err(format!("Transfer failed: {:?}", e)),
+        Ok(_) => Err("Invalid response format".to_string()),
+        Err((code, msg)) => Err(format!("Canister call failed: {:?} - {}", code, msg)),
+    }
+}
+
+// Add necessary types for ICRC2 transfer
+#[derive(CandidType, Clone, Debug)]
+pub struct Account {
+    pub owner: Principal,
+    pub subaccount: Option<Vec<u8>>,
+}
+
+#[derive(CandidType, Clone, Debug)]
+pub struct TransferFromArgs {
+    pub spender_subaccount: Option<Vec<u8>>,
+    pub from: Account,
+    pub to: Account,
+    pub amount: u64,
+    pub fee: Option<u64>,
+    pub memo: Option<Vec<u8>>,
+    pub created_at_time: Option<u64>,
+}
+
+#[derive(CandidType, Clone, Debug, Deserialize)]
+pub enum TransferFromError {
+    BadFee { expected_fee: u64 },
+    BadBurn { min_burn_amount: u64 },
+    InsufficientFunds { balance: u64 },
+    InsufficientAllowance { allowance: u64 },
+    TooOld,
+    CreatedInFuture { ledger_time: u64 },
+    Duplicate { duplicate_of: u64 },
+    TemporarilyUnavailable,
+    GenericError { error_code: u64, message: String },
 }

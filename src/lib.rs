@@ -32,6 +32,7 @@ use candid::{CandidType, Deserialize};
 use ic_cdk_timers::TimerId;
 use std::time::Duration;
 use std::cell::RefCell;
+use candid::Principal;
 
 pub use account_storage::*;
 pub use trace_storage::*;
@@ -1054,10 +1055,17 @@ fn get_traces_by_agentname_paginated(agent_name: String, offset: u64, limit: u64
 #[ic_cdk::query]
 fn cal_unclaim_rewards(principal_id: String) -> u64 {
     ic_cdk::println!("CALL[cal_unclaim_rewards] Input: principal_id={}", principal_id);
-    let principal = candid::Principal::from_text(&principal_id)
-        .unwrap_or_else(|_| candid::Principal::anonymous());
+    let principal = Principal::from_text(&principal_id)
+        .unwrap_or_else(|_| Principal::anonymous());
     let result = mining_reword::cal_unclaim_rewards(principal);
     ic_cdk::println!("CALL[cal_unclaim_rewards] Output: {}", result);
     result
+}
+
+#[ic_cdk::update]
+async fn claim_rewards(principal_id: String) -> Result<u64, String> {
+    let principal = Principal::from_text(&principal_id)
+        .map_err(|e| format!("Invalid principal ID: {}", e))?;
+    mining_reword::claim_rewards(principal).await
 }
 

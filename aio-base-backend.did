@@ -341,6 +341,7 @@ service : {
   "dispatch_mining_rewards": () -> (variant { Ok; Err: text });
   "stop_mining_rewards": () -> (variant { Ok; Err: text });
   "cal_unclaim_rewards": (text) -> (nat64) query;
+  "claim_rewards": (text) -> (variant { Ok: nat64; Err: text });
   "perdic_mining": (bool) -> (variant { Ok: vec RewardEntry; Err: text });
   
   // MCP Asset API
@@ -400,7 +401,6 @@ service : {
   "delete_account": (text) -> (variant { Ok; Err: text });
   "stack_credit": (text,text, nat64) -> (variant { Ok: AccountInfo; Err: text });
   "unstack_credit": (text, nat64) -> (variant { Ok: AccountInfo; Err: text });
-  "claim_token": (text, nat64) -> (variant { Ok: AccountInfo; Err: text });
   "add_token_balance": (text, nat64) -> (variant { Ok: AccountInfo; Err: text });
   "get_balance_summary": (text) -> (record { total_count: nat64; total_amount: nat64; success_count: nat64; unclaimed_balance: nat64 }) query;
   "get_traces_by_operation": (text, text) -> (vec TraceItem) query;
@@ -414,7 +414,6 @@ service : {
   "update_exchange_ratio": (float64) -> (variant { Ok; Err: text });
   "subscribe_plan": (text, SubscriptionPlan) -> (variant { Ok; Err: text });
   "get_kappa": (text) -> (variant { Ok: float64; Err: text });
-  "claim_reward": (text) -> (variant { Ok: nat64; Err: text });
   "init_emission_policy": () -> ();
   "calculate_emission": (text) -> (variant { Ok: nat64; Err: text }) query;
   "get_emission_policy": () -> (variant { Ok: EmissionPolicy; Err: text }) query;
