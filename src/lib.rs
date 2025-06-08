@@ -5,10 +5,10 @@ mod aio_invert_index_types;
 mod aio_protocal_types;
 mod account_storage;
 mod trace_storage;
+pub mod mining_reword;
 pub mod token_economy_types;
 pub mod token_economy;
 pub mod stable_mem_storage;
-pub mod mining_reword;
 
 use agent_asset_types::AgentItem;
 use mcp_asset_types::{McpItem, McpStackRecord};
@@ -1048,6 +1048,16 @@ fn get_traces_by_agentname_paginated(agent_name: String, offset: u64, limit: u64
     ic_cdk::println!("CALL[get_traces_by_agentname_paginated] Input: agent_name={}, offset={}, limit={}", agent_name, offset, limit);
     let result = trace_storage::get_traces_by_agentname_paginated(agent_name, offset, limit);
     ic_cdk::println!("CALL[get_traces_by_agentname_paginated] Output: count={}", result.len());
+    result
+}
+
+#[ic_cdk::query]
+fn cal_unclaim_rewards(principal_id: String) -> u64 {
+    ic_cdk::println!("CALL[cal_unclaim_rewards] Input: principal_id={}", principal_id);
+    let principal = candid::Principal::from_text(&principal_id)
+        .unwrap_or_else(|_| candid::Principal::anonymous());
+    let result = mining_reword::cal_unclaim_rewards(principal);
+    ic_cdk::println!("CALL[cal_unclaim_rewards] Output: {}", result);
     result
 }
 

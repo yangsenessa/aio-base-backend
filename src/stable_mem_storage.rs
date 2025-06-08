@@ -44,7 +44,7 @@ thread_local! {
 
     // Inverted Index
     pub static INVERTED_INDEX_STORE: RefCell<crate::aio_invert_index_types::InvertedIndexStore> = RefCell::new(
-        crate::aio_invert_index_types::InvertedIndexStore::new(MEMORY_MANAGER.with(|m| m.borrow().get(MemoryId::new(0))))
+        crate::aio_invert_index_types::InvertedIndexStore::new(MEMORY_MANAGER.with(|m| m.borrow().get(MemoryId::new(111))))
     );
 
     // Work Ledger
@@ -67,7 +67,7 @@ thread_local! {
     // Protocol Index
     pub static AIO_INDICES: RefCell<StableBTreeMap<String, crate::aio_protocal_types::AioIndex, Memory>> = RefCell::new(
         StableBTreeMap::init(
-            MEMORY_MANAGER.with(|m| m.borrow().get(MemoryId::new(5)))
+            MEMORY_MANAGER.with(|m| m.borrow().get(MemoryId::new(15)))
         )
     );
     pub static KEYWORD_INDEX: RefCell<StableBTreeMap<String, crate::aio_protocal_types::StringVec, Memory>> = RefCell::new(

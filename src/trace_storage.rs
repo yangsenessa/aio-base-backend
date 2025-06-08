@@ -6,16 +6,17 @@ use crate::stable_mem_storage::TRACE_STORAGE;
 use std::cell::RefCell;
 use std::borrow::Cow;
 use std::cmp::Ordering;
+use std::fmt::Debug;
 
 const TRACE_BUFFER_SIZE: usize = 100;
 
-#[derive(CandidType, Deserialize, Clone)]
+#[derive(CandidType, Deserialize, Clone, PartialEq, Debug)]
 pub struct IOValue {
     pub data_type: String,
     pub value: IOValueType,
 }
 
-#[derive(CandidType, Deserialize, Clone)]
+#[derive(CandidType, Deserialize, Clone, PartialEq, Debug)]
 pub enum IOValueType {
     Text(String),
     Number(f64),
@@ -192,7 +193,25 @@ pub fn record_trace_call(
             timestamp: ic_cdk::api::time(),
         };
 
-        trace_log.calls.push(call);
+        // 检查是否存在相同的记录
+        let existing_index = trace_log.calls.iter().position(|existing_call| {
+            ic_cdk::println!("existing_call.agent {:?} call.agent {:?}", existing_call.agent, call.agent);
+            ic_cdk::println!("existing_call.method {:?} call.method {:?}", existing_call.method, call.method);
+            ic_cdk::println!("existing_call.input {:?} call.input {:?}", existing_call.input, call.input);
+      
+            existing_call.agent == call.agent && 
+            existing_call.method == call.method && 
+            existing_call.input == call.input
+        });
+        ic_cdk::println!("existing_index: {:?}", existing_index);
+
+        if let Some(index) = existing_index {
+            // if exists, update the record
+            trace_log.calls[index] = call;
+        } else {
+            // if not exists, add new record
+            trace_log.calls.push(call);
+        }
 
         // Trim buffer if it exceeds maximum size
         if trace_log.calls.len() > TRACE_BUFFER_SIZE {
@@ -485,6 +504,21 @@ pub fn get_traces_for_mining_days(offset: u64, limit: u64) -> Vec<TraceItem> {
             .skip(offset as usize)
             .take(limit as usize)
             .collect()
+    })
+}
+
+pub fn update_trace_status(trace_id: String, status: String) -> Result<(), String> {
+    TRACE_STORAGE.with(|storage| {
+        let mut storage = storage.borrow_mut();
+        if let Some(mut trace_log) = storage.get(&trace_id) {
+            for call in &mut trace_log.calls {
+                call.status = status.clone();
+            }
+            storage.insert(trace_id, trace_log);
+            Ok(())
+        } else {
+            Err("Trace not found".to_string())
+        }
     })
 } 
 

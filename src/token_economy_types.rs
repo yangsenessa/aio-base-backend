@@ -7,6 +7,7 @@ use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use candid::Principal;
+use crate::mining_reword::{RewardEntry, UserRewardKey};
 
 type Memory = VirtualMemory<DefaultMemoryImpl>;
 
@@ -353,73 +354,6 @@ pub struct MiningRewardPolicy {
     pub decay_rate: f32,
     pub total_emission_cap: u64,
     pub quarters: Vec<QuarterRewardConfig>,
-}
-
-#[derive(CandidType, Clone, Debug, Serialize, Deserialize)]
-pub struct RewardEntry {
-    pub principal_id: Principal,
-    pub mcp_name: String,
-    pub reward_amount: u64,
-    pub block_id: u64,
-    pub status: String,
-}
-
-#[derive(CandidType, Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
-pub struct UserRewardKey {
-    pub principal_id: Principal,
-    pub mcp_name: String,
-}
-
-// Implement Storable for QuarterRewardConfig
-impl ic_stable_structures::Storable for QuarterRewardConfig {
-    fn to_bytes(&self) -> std::borrow::Cow<[u8]> {
-        Cow::Owned(Encode!(self).expect("Failed to encode QuarterRewardConfig"))
-    }
-
-    fn from_bytes(bytes: std::borrow::Cow<[u8]>) -> Self {
-        Decode!(bytes.as_ref(), Self).expect("Failed to decode QuarterRewardConfig")
-    }
-
-    const BOUND: Bound = Bound::Bounded { max_size: 1024 * 32, is_fixed_size: false };
-}
-
-// Implement Storable for MiningRewardPolicy
-impl ic_stable_structures::Storable for MiningRewardPolicy {
-    fn to_bytes(&self) -> std::borrow::Cow<[u8]> {
-        Cow::Owned(Encode!(self).expect("Failed to encode MiningRewardPolicy"))
-    }
-
-    fn from_bytes(bytes: std::borrow::Cow<[u8]>) -> Self {
-        Decode!(bytes.as_ref(), Self).expect("Failed to decode MiningRewardPolicy")
-    }
-
-    const BOUND: Bound = Bound::Bounded { max_size: 1024 * 32, is_fixed_size: false };
-}
-
-// Implement Storable for RewardEntry
-impl ic_stable_structures::Storable for RewardEntry {
-    fn to_bytes(&self) -> std::borrow::Cow<[u8]> {
-        Cow::Owned(Encode!(self).expect("Failed to encode RewardEntry"))
-    }
-
-    fn from_bytes(bytes: std::borrow::Cow<[u8]>) -> Self {
-        Decode!(bytes.as_ref(), Self).expect("Failed to decode RewardEntry")
-    }
-
-    const BOUND: Bound = Bound::Bounded { max_size: 1024 * 32, is_fixed_size: false };
-}
-
-// Implement Storable for UserRewardKey
-impl ic_stable_structures::Storable for UserRewardKey {
-    fn to_bytes(&self) -> std::borrow::Cow<[u8]> {
-        Cow::Owned(Encode!(self).expect("Failed to encode UserRewardKey"))
-    }
-
-    fn from_bytes(bytes: std::borrow::Cow<[u8]>) -> Self {
-        Decode!(bytes.as_ref(), Self).expect("Failed to decode UserRewardKey")
-    }
-
-    const BOUND: Bound = Bound::Bounded { max_size: 1024 * 32, is_fixed_size: false };
 }
 
 // 为 Vec<u64> 创建一个包装类型

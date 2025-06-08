@@ -343,6 +343,7 @@ fn calculate_quality_score(stake_ratio: f32) -> f32 {
 
 // Predict mining rewards for all pages
 pub fn perdic_mining() -> Result<Vec<RewardEntry>, String> {
+    ic_cdk::println!("[perdic_mining] Starting mining reward prediction");
     let mut all_reward_entries = Vec::new();
     let mut offset = 0u64;
     let limit = 100u64; // Process 100 records per page
@@ -350,32 +351,42 @@ pub fn perdic_mining() -> Result<Vec<RewardEntry>, String> {
     
     // Get current quarter
     let current_quarter = 1u32; // This should be calculated based on actual time
+    ic_cdk::println!("[perdic_mining] Current quarter: {}", current_quarter);
     
     while has_more {
+        ic_cdk::println!("[perdic_mining] Processing page with offset: {}", offset);
         // Get paginated TraceItems
         let trace_items = crate::trace_storage::get_traces_for_mining_days(offset, limit);
-        
-        if (trace_items.is_empty() || trace_items.len() < limit as usize) {
+        if trace_items.is_empty() {
+            ic_cdk::println!("[perdic_mining] No more trace items found, ending pagination");
             has_more = false;
             continue;
         }
+        ic_cdk::println!("[perdic_mining] Retrieved {} trace items", trace_items.len());
         
         // Group by MCP name
         let mut mcp_traces: HashMap<String, Vec<&crate::trace_storage::TraceItem>> = HashMap::new();
         for item in &trace_items {
-            mcp_traces.entry(item.agent.clone())
-                .or_insert_with(Vec::new)
-                .push(item);
+            // Only process unclaimed traces
+            if item.status != "claimed" {
+                mcp_traces.entry(item.agent.clone())
+                    .or_insert_with(Vec::new)
+                    .push(item);
+            }
         }
+        ic_cdk::println!("[perdic_mining] Grouped traces by {} MCPs", mcp_traces.len());
         
         // Process rewards for each MCP
         for (mcp_name, traces) in mcp_traces {
+            ic_cdk::println!("[perdic_mining] Processing MCP: {}, with {} traces", mcp_name, traces.len());
             // Get all stack records for this MCP
             let stack_records = get_all_mcp_stack_records(mcp_name.clone());
             
             if stack_records.is_empty() {
+                ic_cdk::println!("[perdic_mining] No stack records found for MCP: {}", mcp_name);
                 continue;
             }
+            ic_cdk::println!("[perdic_mining] Found {} stack records for MCP: {}", stack_records.len(), mcp_name);
             
             // Calculate total stake
             let total_stake: u64 = stack_records.iter()
@@ -384,8 +395,10 @@ pub fn perdic_mining() -> Result<Vec<RewardEntry>, String> {
                 .sum();
             
             if total_stake == 0 {
+                ic_cdk::println!("[perdic_mining] Total stake is 0 for MCP: {}", mcp_name);
                 continue;
             }
+            ic_cdk::println!("[perdic_mining] Total stake for MCP {}: {}", mcp_name, total_stake);
             
             // Get mining policy
             let policy = get_mining_policy();
@@ -393,6 +406,7 @@ pub fn perdic_mining() -> Result<Vec<RewardEntry>, String> {
                 .iter()
                 .find(|q| q.quarter == current_quarter)
                 .ok_or_else(|| format!("Invalid quarter configuration: {}", current_quarter))?;
+            ic_cdk::println!("[perdic_mining] Using base reward: {} for quarter {}", quarter_config.base_reward, current_quarter);
             
             // Calculate rewards for each stack record
             for stack_record in stack_records {
@@ -402,17 +416,27 @@ pub fn perdic_mining() -> Result<Vec<RewardEntry>, String> {
                 
                 let stake_ratio = stack_record.stack_amount as f32 / total_stake as f32;
                 let quality_score = calculate_quality_score(stake_ratio);
+                ic_cdk::println!("[perdic_mining] Stack record - Principal: {}, Stake ratio: {}, Quality score: {}", 
+                    stack_record.principal_id, stake_ratio, quality_score);
                 
                 // Calculate reward for each trace
                 for trace in &traces {
+                    // Recheck trace status
+                    if trace.status == "claimed" {
+                        continue;
+                    }
+
+                    let principal_id = candid::Principal::from_text(&stack_record.principal_id)
+                        .unwrap_or_else(|_| candid::Principal::anonymous());
+
                     let reward = (quarter_config.base_reward as f32 * quality_score) as u64;
+                    ic_cdk::println!("[perdic_mining] Calculating reward for trace {} - Amount: {}", trace.trace_id, reward);
                     
                     let reward_entry = RewardEntry {
-                        principal_id: candid::Principal::from_text(&stack_record.principal_id)
-                            .unwrap_or_else(|_| candid::Principal::anonymous()),
+                        principal_id,
                         mcp_name: mcp_name.clone(),
                         reward_amount: reward,
-                        block_id: trace.timestamp, // Use timestamp as block_id
+                        block_id: trace.timestamp,
                         status: "pending".to_string(),
                     };
                     
@@ -423,11 +447,11 @@ pub fn perdic_mining() -> Result<Vec<RewardEntry>, String> {
                         entries.insert(next_id, reward_entry.clone());
                         next_id
                     });
-                    
+                    ic_cdk::println!("[perdic_mining] Stored reward entry with ID: {}", next_id);
+
                     // Update user reward index
                     let user_key = UserRewardKey {
-                        principal_id: candid::Principal::from_text(&stack_record.principal_id)
-                            .unwrap_or_else(|_| candid::Principal::anonymous()),
+                        principal_id,
                         mcp_name: mcp_name.clone(),
                     };
                     
@@ -449,6 +473,16 @@ pub fn perdic_mining() -> Result<Vec<RewardEntry>, String> {
                         reward_ids.push(next_id);
                         index.borrow_mut().insert(mcp_name.clone(), RewardIdList(reward_ids));
                     });
+
+                    // Update trace status to claimed
+                    if let Err(e) = crate::trace_storage::update_trace_status(
+                        trace.trace_id.clone(),
+                        "claimed".to_string()
+                    ) {
+                        ic_cdk::println!("[perdic_mining] Failed to update trace status: {}", e);
+                        return Err(format!("Failed to update trace status: {}", e));
+                    }
+                    ic_cdk::println!("[perdic_mining] Updated trace status to claimed for trace: {}", trace.trace_id);
                     
                     all_reward_entries.push(reward_entry);
                 }
@@ -458,6 +492,7 @@ pub fn perdic_mining() -> Result<Vec<RewardEntry>, String> {
         offset += limit;
     }
     
+    ic_cdk::println!("[perdic_mining] Completed mining reward prediction. Total reward entries: {}", all_reward_entries.len());
     Ok(all_reward_entries)
 }
 
@@ -485,4 +520,72 @@ fn get_all_mcp_stack_records(mcp_name: String) -> Vec<crate::mcp_asset_types::Mc
     }
 
     all_records
+}
+
+// Calculate total unclaimed rewards for a principal
+pub fn cal_unclaim_rewards(principal: Principal) -> u64 {
+    let mut total_rewards = 0u64;
+    
+    // Get all reward IDs for the user
+    let reward_ids = USER_REWARD_INDEX.with(|index| {
+        let mut ids = Vec::new();
+        for (key, list) in index.borrow().iter() {
+            if key.principal_id == principal {
+                ids.extend(list.0.clone());
+            }
+        }
+        ids
+    });
+    
+    // Sum up all pending rewards
+    REWARD_ENTRIES.with(|entries| {
+        for id in reward_ids {
+            if let Some(entry) = entries.borrow().get(&id) {
+                if entry.status == "pending" {
+                    total_rewards += entry.reward_amount;
+                }
+            }
+        }
+    });
+    
+    total_rewards
+}
+
+// Claim rewards for a principal
+pub async fn claim_rewards(principal: Principal) -> Result<u64, String> {
+    // 1. Get all pending rewards for the user
+    let pending_rewards = get_pending_rewards(principal);
+    if pending_rewards.is_empty() {
+        return Err("No pending rewards to claim".to_string());
+    }
+
+    // 2. Calculate total reward amount
+    let total_amount: u64 = pending_rewards.iter()
+        .map(|entry| entry.reward_amount)
+        .sum();
+
+    // 3. Call ICRC1 transfer contract for token transfer
+    // TODO: Implement actual ICRC1 transfer call
+    // let transfer_result = icrc1_transfer(principal, total_amount).await?;
+
+    // 4. Update all reward record statuses to claimed
+    let reward_ids: Vec<u64> = REWARD_ENTRIES.with(|entries| {
+        let entries = entries.borrow();
+        entries.iter()
+            .filter(|(_, entry)| entry.principal_id == principal && entry.status == "pending")
+            .map(|(id, _)| id.clone())
+            .collect()
+    });
+
+    for id in reward_ids {
+        REWARD_ENTRIES.with(|entries| {
+            if let Some(entry) = entries.borrow().get(&id) {
+                let mut updated_entry = entry.clone();
+                updated_entry.status = "claimed".to_string();
+                entries.borrow_mut().insert(id, updated_entry);
+            }
+        });
+    }
+
+    Ok(total_amount)
 }

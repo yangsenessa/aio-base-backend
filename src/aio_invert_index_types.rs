@@ -471,7 +471,7 @@ mod tests {
 
     fn setup_test_store() -> InvertedIndexStore {
         let memory_manager = MemoryManager::init(DefaultMemoryImpl::default());
-        let memory = memory_manager.get(MemoryId::new(0));
+        let memory = memory_manager.get(MemoryId::new(88));
         InvertedIndexStore::new(memory)
     }
 

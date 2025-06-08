@@ -315,6 +315,14 @@ type TraceStatistics = record {
   total_count: nat64;
 };
 
+type RewardEntry = record {
+  principal_id: principal;
+  mcp_name: text;
+  reward_amount: nat64;
+  block_id: nat64;
+  status: text;
+};
+
 service : {
   // Basic API
   "greet": (text) -> (text) query;
@@ -332,6 +340,8 @@ service : {
   // Mining Rewards API
   "dispatch_mining_rewards": () -> (variant { Ok; Err: text });
   "stop_mining_rewards": () -> (variant { Ok; Err: text });
+  "cal_unclaim_rewards": (text) -> (nat64) query;
+  "perdic_mining": (bool) -> (variant { Ok: vec RewardEntry; Err: text });
   
   // MCP Asset API
   "get_mcp_item": (text) -> (opt McpItem) query;
