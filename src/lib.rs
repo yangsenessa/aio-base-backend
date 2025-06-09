@@ -666,9 +666,9 @@ fn revert_Index_find_by_keywords_strategy(keywords: Vec<String>) -> String {
 
 // ==== Finance API ====
 
-#[ic_cdk::query]
-fn get_account_info(principal_id: String) -> Option<AccountInfo> {
-    token_economy::get_account_info(principal_id)
+#[ic_cdk::update]
+async fn get_account_info(principal_id: String) -> Option<AccountInfo> {
+    token_economy::get_account_info(principal_id).await
 }
 
 #[ic_cdk::update]
@@ -1066,6 +1066,16 @@ fn cal_unclaim_rewards(principal_id: String) -> u64 {
 async fn claim_rewards(principal_id: String) -> Result<u64, String> {
     let principal = Principal::from_text(&principal_id)
         .map_err(|e| format!("Invalid principal ID: {}", e))?;
-    mining_reword::claim_rewards(principal).await
+    
+    #[derive(CandidType, Deserialize)]
+    struct ClaimRewardsResult {
+        Ok: Option<u64>,
+        Err: Option<String>,
+    }
+    
+    match mining_reword::claim_rewards(principal).await {
+        Ok(amount) => Ok(amount),
+        Err(e) => Err(e),
+    }
 }
 

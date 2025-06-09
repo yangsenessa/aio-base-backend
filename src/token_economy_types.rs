@@ -11,6 +11,10 @@ use crate::mining_reword::{RewardEntry, UserRewardKey};
 
 type Memory = VirtualMemory<DefaultMemoryImpl>;
 
+pub const AIO_MINING_POOL_ID: &str = "cmx4w-ltfgv-strkj-zbcjj-ulg3p-e2rsl-haeth-le6mq-47xa4-reygn-iqe";
+
+pub const TOKEN_LEDGER_CANISTER_ID: &str = "mxzaz-hqaaa-aaaar-qaada-cai";
+
 #[derive(CandidType, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub enum TokenActivityType {
     Transfer,

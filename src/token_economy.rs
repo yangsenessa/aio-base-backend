@@ -1,4 +1,4 @@
-use candid::{CandidType, Decode, Encode};
+use candid::{CandidType, Principal, Decode, Encode};
 use ic_cdk::api::time;
 use ic_stable_structures::StableBTreeMap;
 use std::cell::RefCell;
@@ -37,8 +37,33 @@ const DEFAULT_KAPPA_FACTOR: f64 = 1.0;
 const DEFAULT_STAKING_BONUS: f64 = 0.1;
 
 // Account Management
-pub fn get_account_info(principal_id: String) -> Option<AccountInfo> {
-    get_account(principal_id)
+pub async fn get_account_info(principal_id: String) -> Option<AccountInfo> {
+    let mut account = get_account(principal_id.clone())?;
+    
+    // get token balance from ledger canister
+    let icrc_account = icrc_ledger_types::icrc1::account::Account {
+        owner: candid::Principal::from_text(&principal_id).ok()?,
+        subaccount: None,
+    };
+
+    let ledger_canister_id = candid::Principal::from_text(TOKEN_LEDGER_CANISTER_ID).ok()?;
+    
+    // Call ICRC1 balance_of method
+    let result = ic_cdk::call::<(icrc_ledger_types::icrc1::account::Account,), (candid::Nat,)>(ledger_canister_id, "icrc1_balance_of", (icrc_account,)).await;
+    
+    match result {
+        Ok((balance,)) => {
+            // update account balance
+            account.token_info.token_balance = balance.0.try_into().ok()?;
+            account.updated_at = ic_cdk::api::time();
+            
+            // save updated account info
+            upsert_account(account.clone()).ok()?;
+            
+            Some(account)
+        },
+        Err(_) => None
+    }
 }
 
 pub fn create_account(principal_id: String) -> Result<AccountInfo, String> {
@@ -760,4 +785,39 @@ pub fn claim_mcp_grant_with_mcpname(principal_id: &str, mcp_name: &str) -> Resul
     record_credit_activity(activity)?;
 
     Ok(remaining_amount)
+}
+
+// Add ICRC1 types with different names to avoid conflicts
+#[derive(CandidType, Clone, Debug)]
+pub struct ICRC1Account {
+    pub owner: Principal,
+    pub subaccount: Option<Vec<u8>>,
+}
+
+#[derive(CandidType, Clone, Debug)]
+pub struct ICRC1TransferArgs {
+    pub from_subaccount: Option<Vec<u8>>,
+    pub to: ICRC1Account,
+    pub amount: candid::Nat,
+    pub fee: Option<candid::Nat>,
+    pub memo: Option<Vec<u8>>,
+    pub created_at_time: Option<u64>,
+}
+
+#[derive(CandidType, Clone, Debug, Deserialize)]
+pub enum ICRC1TransferError {
+    BadFee { expected_fee: candid::Nat },
+    BadBurn { min_burn_amount: candid::Nat },
+    InsufficientFunds { balance: candid::Nat },
+    TooOld,
+    CreatedInFuture { ledger_time: u64 },
+    Duplicate { duplicate_of: candid::Nat },
+    TemporarilyUnavailable,
+    GenericError { error_code: candid::Nat, message: String },
+}
+
+#[derive(CandidType, Clone, Debug, Deserialize)]
+pub enum ICRC1TransferResult {
+    Ok(candid::Nat),
+    Err(ICRC1TransferError),
 } 

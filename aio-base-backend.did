@@ -394,7 +394,7 @@ service : {
   "revert_Index_find_by_keywords_strategy": (vec text) -> (text) query;
 
   // Finance API
-  "get_account_info": (text) -> (opt AccountInfo) query;
+  "get_account_info": (text) -> (opt AccountInfo);
   "add_account": (text) -> (variant { Ok: AccountInfo; Err: text });
   "get_all_accounts": () -> (vec AccountInfo) query;
   "get_accounts_paginated": (nat64, nat64) -> (vec AccountInfo) query;

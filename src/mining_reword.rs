@@ -565,29 +565,33 @@ pub async fn claim_rewards(principal: Principal) -> Result<u64, String> {
         .sum();
 
     // 3. Call ICRC2 transfer_from contract for token transfer
-    let ledger_canister_id = Principal::from_text("mxzaz-hqaaa-aaaar-qaada-cai")
+    let ledger_canister_id = Principal::from_text(crate::token_economy_types::TOKEN_LEDGER_CANISTER_ID)
         .map_err(|e| format!("Invalid ledger canister ID: {}", e))?;
+
+    let user_account = Account {
+        owner: principal,
+        subaccount: None,
+    };
+    let mining_pool_account = Account {
+        owner: Principal::from_text(crate::token_economy_types::AIO_MINING_POOL_ID)
+            .map_err(|e| format!("Invalid mining pool principal: {}", e))?,
+        subaccount: None,
+    };
     
     let transfer_args = TransferFromArgs {
         spender_subaccount: None,
-        from: Account {
-            owner: ic_cdk::id(),
-            subaccount: None,
-        },
-        to: Account {
-            owner: principal,
-            subaccount: None,
-        },
-        amount: total_amount,
+        from: mining_pool_account,
+        to: user_account,
+        amount: candid::Nat::from(total_amount),
         fee: None,
         memo: None,
         created_at_time: Some(ic_cdk::api::time()),
     };
 
     #[derive(CandidType, Deserialize)]
-    struct TransferFromResult {
-        Ok: Option<u64>,
-        Err: Option<TransferFromError>,
+    enum TransferFromResult {
+        Ok(candid::Nat),
+        Err(TransferFromError),
     }
 
     let result = ic_cdk::call::<(TransferFromArgs,), (TransferFromResult,)>(
@@ -597,7 +601,7 @@ pub async fn claim_rewards(principal: Principal) -> Result<u64, String> {
     ).await;
 
     match result {
-        Ok((TransferFromResult { Ok: Some(block_height), Err: None },)) => {
+        Ok((TransferFromResult::Ok(_block_height),)) => {
             // 4. Update all reward record statuses to claimed
             let reward_ids: Vec<u64> = REWARD_ENTRIES.with(|entries| {
                 let entries = entries.borrow();
@@ -607,20 +611,21 @@ pub async fn claim_rewards(principal: Principal) -> Result<u64, String> {
                     .collect()
             });
 
-            for id in reward_ids {
-                REWARD_ENTRIES.with(|entries| {
-                    if let Some(entry) = entries.borrow().get(&id) {
+            
+            REWARD_ENTRIES.with(|entries| {
+                let mut entries = entries.borrow_mut();
+                for id in reward_ids {
+                    if let Some(entry) = entries.get(&id) {
                         let mut updated_entry = entry.clone();
                         updated_entry.status = "claimed".to_string();
-                        entries.borrow_mut().insert(id, updated_entry);
+                        entries.insert(id, updated_entry);
                     }
-                });
-            }
+                }
+            });
 
             Ok(total_amount)
         },
-        Ok((TransferFromResult { Ok: None, Err: Some(e) },)) => Err(format!("Transfer failed: {:?}", e)),
-        Ok(_) => Err("Invalid response format".to_string()),
+        Ok((TransferFromResult::Err(e),)) => Err(format!("Transfer failed: {:?}", e)),
         Err((code, msg)) => Err(format!("Canister call failed: {:?} - {}", code, msg)),
     }
 }
@@ -637,21 +642,21 @@ pub struct TransferFromArgs {
     pub spender_subaccount: Option<Vec<u8>>,
     pub from: Account,
     pub to: Account,
-    pub amount: u64,
-    pub fee: Option<u64>,
+    pub amount: candid::Nat,
+    pub fee: Option<candid::Nat>,
     pub memo: Option<Vec<u8>>,
     pub created_at_time: Option<u64>,
 }
 
 #[derive(CandidType, Clone, Debug, Deserialize)]
 pub enum TransferFromError {
-    BadFee { expected_fee: u64 },
-    BadBurn { min_burn_amount: u64 },
-    InsufficientFunds { balance: u64 },
-    InsufficientAllowance { allowance: u64 },
+    BadFee { expected_fee: candid::Nat },
+    BadBurn { min_burn_amount: candid::Nat },
+    InsufficientFunds { balance: candid::Nat },
+    InsufficientAllowance { allowance: candid::Nat },
     TooOld,
     CreatedInFuture { ledger_time: u64 },
-    Duplicate { duplicate_of: u64 },
+    Duplicate { duplicate_of: candid::Nat },
     TemporarilyUnavailable,
-    GenericError { error_code: u64, message: String },
+    GenericError { error_code: candid::Nat, message: String },
 }
