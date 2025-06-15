@@ -1079,3 +1079,24 @@ async fn claim_rewards(principal_id: String) -> Result<u64, String> {
     }
 }
 
+#[ic_cdk::query]
+fn get_total_aiotoken_claimable() -> u64 {
+    mining_reword::get_total_aiotoken_claimable()
+}
+
+#[ic_cdk::query]
+fn get_total_stacked_credits() -> u64 {
+    ic_cdk::println!("CALL[get_total_stacked_credits] Input: none");
+    let result = mcp_asset_types::get_total_stacked_credits();
+    ic_cdk::println!("CALL[get_total_stacked_credits] Output: {}", result);
+    result
+}
+
+#[ic_cdk::query]
+fn get_stacked_record_group_by_stack_amount() -> Vec<mcp_asset_types::StackPositionRecord> {
+    ic_cdk::println!("CALL[get_stacked_record_group_by_stack_amount] Input: none");
+    let result = mcp_asset_types::get_stacked_record_group_by_stack_amount();
+    ic_cdk::println!("CALL[get_stacked_record_group_by_stack_amount] Output: count={}", result.len());
+    result
+}
+

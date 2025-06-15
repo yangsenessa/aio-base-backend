@@ -50,6 +50,12 @@ impl Default for McpItem {
     }
 }
 
+#[derive(CandidType, Serialize, Deserialize, Clone, Debug, Copy, PartialEq, Eq)]
+pub enum StackStatus {
+    Stacked,
+    Unstacked,
+}
+
 #[derive(CandidType, Serialize, Deserialize, Clone, Debug)]
 pub struct McpStackRecord {
     pub principal_id: String,
@@ -59,10 +65,11 @@ pub struct McpStackRecord {
     pub stack_status: StackStatus,
 }
 
-#[derive(CandidType, Serialize, Deserialize, Clone, Debug, Copy)]
-pub enum StackStatus {
-    Stacked,
-    Unstacked,
+#[derive(CandidType, Serialize, Deserialize, Clone, Debug)]
+pub struct StackPositionRecord {
+    pub id: u64,
+    pub mcp_name: String,
+    pub stack_amount: u64,
 }
 
 // Define the key for user data association
@@ -477,5 +484,51 @@ pub fn get_mcp_stack_records_paginated(mcp_name: String, offset: u64, limit: u64
         }
         
         filtered_records[start..end].to_vec()
+    })
+}
+
+/// Get total stacked credits across all MCPs
+pub fn get_total_stacked_credits() -> u64 {
+    MCP_STACK_RECORDS.with(|records| {
+        let records = records.borrow();
+        if records.is_empty() {
+            return 0;
+        }
+        
+        records.iter()
+            .filter(|(_, record)| record.stack_status == StackStatus::Stacked)
+            .map(|(_, record)| record.stack_amount)
+            .sum()
+    })
+}
+
+/// Get stacked records grouped by MCP name with total stack amount
+pub fn get_stacked_record_group_by_stack_amount() -> Vec<StackPositionRecord> {
+    MCP_STACK_RECORDS.with(|records| {
+        let records = records.borrow();
+        if records.is_empty() {
+            return Vec::new();
+        }
+        
+        // Create a HashMap to store the sum of stack amounts for each MCP
+        let mut mcp_totals: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
+        
+        // Sum up stack amounts for each MCP
+        records.iter()
+            .filter(|(_, record)| record.stack_status == StackStatus::Stacked)
+            .for_each(|(_, record)| {
+                *mcp_totals.entry(record.mcp_name.clone())
+                    .or_insert(0) += record.stack_amount;
+            });
+        
+        // Convert HashMap to Vec<StackPositionRecord>
+        mcp_totals.into_iter()
+            .enumerate()
+            .map(|(index, (mcp_name, stack_amount))| StackPositionRecord {
+                id: (index + 1) as u64,
+                mcp_name,
+                stack_amount,
+            })
+            .collect()
     })
 }

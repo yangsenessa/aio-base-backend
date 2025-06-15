@@ -660,3 +660,16 @@ pub enum TransferFromError {
     TemporarilyUnavailable,
     GenericError { error_code: candid::Nat, message: String },
 }
+
+// Get total amount of all reward entries regardless of status
+pub fn get_total_aiotoken_claimable() -> u64 {
+    let mut total_amount = 0u64;
+    
+    REWARD_ENTRIES.with(|entries| {
+        for (_, entry) in entries.borrow().iter() {
+            total_amount += entry.reward_amount;
+        }
+    });
+    
+    total_amount
+}

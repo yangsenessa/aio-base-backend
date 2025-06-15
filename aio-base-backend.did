@@ -323,6 +323,12 @@ type RewardEntry = record {
   status: text;
 };
 
+type StackPositionRecord = record {
+  id: nat64;
+  mcp_name: text;
+  stack_amount: nat64;
+};
+
 service : {
   // Basic API
   "greet": (text) -> (text) query;
@@ -465,4 +471,7 @@ service : {
   "create_and_claim_newmcp_grant": (text, text) -> (variant { Ok: nat64; Err: text });
 
   get_mcp_stack_records_paginated : (text, nat64, nat64) -> (vec McpStackRecord);
+  get_total_aiotoken_claimable : () -> (nat64) query;
+  get_total_stacked_credits : () -> (nat64) query;
+  get_stacked_record_group_by_stack_amount : () -> (vec StackPositionRecord) query;
 }
