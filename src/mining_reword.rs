@@ -665,7 +665,7 @@ pub enum TransferFromError {
 pub fn get_total_aiotoken_claimable() -> u64 {
     let mut total_amount = 0u64;
     
-    .with(|entries| {
+    REWARD_ENTRIES.with(|entries| {
         for (_, entry) in entries.borrow().iter() {
             total_amount += entry.reward_amount;
         }
