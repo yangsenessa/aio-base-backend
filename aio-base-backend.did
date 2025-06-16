@@ -474,4 +474,5 @@ service : {
   get_total_aiotoken_claimable : () -> (nat64) query;
   get_total_stacked_credits : () -> (nat64) query;
   get_stacked_record_group_by_stack_amount : () -> (vec StackPositionRecord) query;
+  get_all_mcp_names : () -> (vec text) query;
 }

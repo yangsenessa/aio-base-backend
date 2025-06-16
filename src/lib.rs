@@ -1100,3 +1100,11 @@ fn get_stacked_record_group_by_stack_amount() -> Vec<mcp_asset_types::StackPosit
     result
 }
 
+#[ic_cdk::query]
+fn get_all_mcp_names() -> Vec<String> {
+    ic_cdk::println!("CALL[get_all_mcp_names]");
+    let result = mcp_asset_types::get_all_mcp_names();
+    ic_cdk::println!("CALL[get_all_mcp_names] Output: {:?}", result);
+    result
+}
+

@@ -532,3 +532,10 @@ pub fn get_stacked_record_group_by_stack_amount() -> Vec<StackPositionRecord> {
             .collect()
     })
 }
+
+/// Get all MCP names
+pub fn get_all_mcp_names() -> Vec<String> {
+    MCP_ITEMS.with(|items| {
+        items.borrow().iter().map(|(_, item)| item.name.clone()).collect()
+    })
+}
