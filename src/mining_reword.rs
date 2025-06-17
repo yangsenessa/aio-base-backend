@@ -304,8 +304,8 @@ pub fn get_pending_rewards(principal: Principal) -> Vec<RewardEntry> {
     pending_rewards
 }
 
-// Get rewards for specific MCP
-pub fn get_mcp_rewards(mcp_name: String) -> Vec<RewardEntry> {
+// Get rewards for specific MCP with pagination
+pub fn get_mcp_rewards_paginated(mcp_name: String, offset: u64, limit: u64) -> Vec<RewardEntry> {
     let mut mcp_rewards = Vec::new();
     
     // Get all reward IDs for the MCP
@@ -316,16 +316,41 @@ pub fn get_mcp_rewards(mcp_name: String) -> Vec<RewardEntry> {
             .unwrap_or_default()
     });
     
-    // Get reward entries
+    // Calculate pagination range
+    let start = offset as usize;
+    let end = std::cmp::min((offset + limit) as usize, reward_ids.len());
+    
+    // Get reward entries for the paginated range
     REWARD_ENTRIES.with(|entries| {
-        for id in reward_ids {
-            if let Some(entry) = entries.borrow().get(&id) {
+        for id in reward_ids.iter().skip(start).take(end - start) {
+            if let Some(entry) = entries.borrow().get(id) {
                 mcp_rewards.push(entry.clone());
             }
         }
     });
     
     mcp_rewards
+}
+
+// Get rewards for specific MCP
+pub fn get_mcp_rewards(mcp_name: String) -> Vec<RewardEntry> {
+    let mut all_rewards = Vec::new();
+    let mut offset = 0u64;
+    let limit = 100u64; // Process 100 records per page
+    let mut has_more = true;
+    
+    while has_more {
+        let page_rewards = get_mcp_rewards_paginated(mcp_name.clone(), offset, limit);
+        if page_rewards.is_empty() {
+            has_more = false;
+            continue;
+        }
+        
+        all_rewards.extend(page_rewards);
+        offset += limit;
+    }
+    
+    all_rewards
 }
 
 // Calculate quality score based on stake ratio
@@ -672,4 +697,67 @@ pub fn get_total_aiotoken_claimable() -> u64 {
     });
     
     total_amount
+}
+
+// Get all MCP rewards with pagination
+pub fn get_all_mcp_rewards_paginated(offset: u64, limit: u64) -> Vec<RewardEntry> {
+    let mut all_rewards = Vec::new();
+    let mut current_offset = 0u64;
+    let mut processed_count = 0u64;
+    
+    // Get all MCP names from MCP_REWARD_INDEX
+    let mcp_names: Vec<String> = MCP_REWARD_INDEX.with(|index| {
+        index.borrow()
+            .iter()
+            .map(|(mcp_name, _)| mcp_name.clone())
+            .collect()
+    });
+    
+    // Iterate through all MCPs
+    for mcp_name in mcp_names {
+        // Get reward IDs for current MCP
+        let reward_ids = MCP_REWARD_INDEX.with(|index| {
+            index.borrow()
+                .get(&mcp_name)
+                .map(|list| list.0)
+                .unwrap_or_default()
+        });
+        
+        // Process rewards for current MCP
+        REWARD_ENTRIES.with(|entries| {
+            for id in reward_ids {
+                if processed_count >= offset && processed_count < offset + limit {
+                    if let Some(entry) = entries.borrow().get(&id) {
+                        all_rewards.push(entry.clone());
+                    }
+                }
+                processed_count += 1;
+                
+                // Break if we've reached the limit
+                if all_rewards.len() >= limit as usize {
+                    break;
+                }
+            }
+        });
+        
+        // Break if we've reached the limit
+        if all_rewards.len() >= limit as usize {
+            break;
+        }
+    }
+    
+    all_rewards
+}
+
+// Get total count of all MCP rewards
+pub fn get_total_mcp_rewards_count() -> u64 {
+    let mut total_count = 0u64;
+    
+    MCP_REWARD_INDEX.with(|index| {
+        for (_, list) in index.borrow().iter() {
+            total_count += list.0.len() as u64;
+        }
+    });
+    
+    total_count
 }

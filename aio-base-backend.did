@@ -349,6 +349,7 @@ service : {
   "cal_unclaim_rewards": (text) -> (nat64) query;
   "claim_rewards": (text) -> (variant { Ok: nat64; Err: text });
   "perdic_mining": (bool) -> (variant { Ok: vec RewardEntry; Err: text });
+  "get_mcp_rewards_paginated": (nat64, nat64) -> (vec RewardEntry) query;
   
   // MCP Asset API
   "get_mcp_item": (text) -> (opt McpItem) query;

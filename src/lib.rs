@@ -1108,3 +1108,11 @@ fn get_all_mcp_names() -> Vec<String> {
     result
 }
 
+#[ic_cdk::query]
+fn get_mcp_rewards_paginated(offset: u64, limit: u64) -> Vec<RewardEntry> {
+    ic_cdk::println!("CALL[get_mcp_rewards_paginated] Input: offset={}, limit={}", offset, limit);
+    let result = mining_reword::get_all_mcp_rewards_paginated(offset, limit);
+    ic_cdk::println!("CALL[get_mcp_rewards_paginated] Output: count={}", result.len());
+    result
+}
+
