@@ -11,8 +11,8 @@ use crate::mining_reword::{RewardEntry, UserRewardKey};
 
 type Memory = VirtualMemory<DefaultMemoryImpl>;
 
-//pub const AIO_MINING_POOL_ID: &str = "cmx4w-ltfgv-strkj-zbcjj-ulg3p-e2rsl-haeth-le6mq-47xa4-reygn-iqe";
-pub const AIO_MINING_POOL_ID: &str = "6nimk-xpves-34bk3-zf7dp-nykqv-h3ady-iu3ze-xplot-vm4uy-ptbel-3qe";
+pub const AIO_MINING_POOL_ID: &str = "cmx4w-ltfgv-strkj-zbcjj-ulg3p-e2rsl-haeth-le6mq-47xa4-reygn-iqe";
+//pub const AIO_MINING_POOL_ID: &str = "6nimk-xpves-34bk3-zf7dp-nykqv-h3ady-iu3ze-xplot-vm4uy-ptbel-3qe";
 
 pub const TOKEN_LEDGER_CANISTER_ID: &str = "mxzaz-hqaaa-aaaar-qaada-cai";
 
