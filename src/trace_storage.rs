@@ -193,7 +193,7 @@ pub fn record_trace_call(
             timestamp: ic_cdk::api::time(),
         };
 
-        // 检查是否存在相同的记录
+        // Check if there is a duplicate record
         let existing_index = trace_log.calls.iter().position(|existing_call| {
             ic_cdk::println!("existing_call.agent {:?} call.agent {:?}", existing_call.agent, call.agent);
             ic_cdk::println!("existing_call.method {:?} call.method {:?}", existing_call.method, call.method);
@@ -470,7 +470,7 @@ pub fn get_traces_paginated( offset: u64, limit: u64) -> Vec<TraceLog> {
 
 pub fn get_traces_for_mining_days(offset: u64, limit: u64) -> Vec<TraceItem> {
     let current_time = ic_cdk::api::time();
-    let day_seconds = 24 * 60 * 60 * 1_000_000_000; // 一天的纳秒数
+    let day_seconds = 24 * 60 * 60 * 1_000_000_000; // Nanoseconds in a day
     let start_time = current_time - day_seconds;
 
     TRACE_STORAGE.with(|storage| {

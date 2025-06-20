@@ -37,7 +37,36 @@ impl ic_stable_structures::Storable for AccountInfo {
     }
 
     fn from_bytes(bytes: std::borrow::Cow<[u8]>) -> Self {
-        Decode!(bytes.as_ref(), Self).expect("Failed to decode AccountInfo")
+        // Try to decode as current AccountInfo first
+        match Decode!(bytes.as_ref(), Self) {
+            Ok(account) => account,
+            Err(_) => {
+                // If decoding fails, try to decode as Option<AccountInfo>
+                match Decode!(bytes.as_ref(), Option<Self>) {
+                    Ok(Some(account)) => account,
+                    Ok(None) => {
+                        // If it's null/None, return a default AccountInfo
+                        // This should not happen in normal cases, but we handle it gracefully
+                        Self {
+                            principal_id: "unknown".to_string(),
+                            token_info: crate::token_economy_types::TokenInfo {
+                                token_balance: 0,
+                                credit_balance: 0,
+                                staked_credits: 0,
+                                kappa_multiplier: 1.0,
+                            },
+                            created_at: ic_cdk::api::time(),
+                            updated_at: None,
+                            metadata: Some("recovered_from_null".to_string()),
+                        }
+                    },
+                    Err(_) => {
+                        // If both fail, return the original error
+                        Decode!(bytes.as_ref(), Self).expect("Failed to decode AccountInfo")
+                    }
+                }
+            }
+        }
     }
 
     const BOUND: Bound = Bound::Bounded { max_size: 20000 * 1024, is_fixed_size: false };

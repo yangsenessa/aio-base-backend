@@ -136,4 +136,21 @@ thread_local! {
             MEMORY_MANAGER.with(|m| m.borrow().get(MemoryId::new(11)))
         )
     );
+
+    // Credit Exchange & Recharge
+    pub static CREDIT_CONVERT_CONTRACT: RefCell<StableBTreeMap<String, crate::token_economy_types::CreditConvertContract, Memory>> = RefCell::new(
+        StableBTreeMap::init(
+            MEMORY_MANAGER.with(|m| m.borrow().get(MemoryId::new(51)))
+        )
+    );
+    pub static RECHARGE_RECORDS: RefCell<StableBTreeMap<u64, crate::token_economy_types::RechargeRecord, Memory>> = RefCell::new(
+        StableBTreeMap::init(
+            MEMORY_MANAGER.with(|m| m.borrow().get(MemoryId::new(52)))
+        )
+    );
+    pub static RECHARGE_PRINCIPAL_ACCOUNTS: RefCell<StableVec<crate::token_economy_types::RechargePrincipalAccount, Memory>> = RefCell::new(
+        StableVec::init(
+            MEMORY_MANAGER.with(|m| m.borrow().get(MemoryId::new(53)))
+        ).unwrap()
+    );
 } 

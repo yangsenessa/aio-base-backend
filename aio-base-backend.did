@@ -182,7 +182,7 @@ type AccountInfo = record {
   principal_id: text;
   token_info: TokenInfo;
   created_at: nat64;
-  updated_at: nat64;
+  updated_at: opt nat64;
   metadata: opt text;
 };
 
@@ -327,6 +327,18 @@ type StackPositionRecord = record {
   id: nat64;
   mcp_name: text;
   stack_amount: nat64;
+};
+
+type RechargeRecord = record {
+  user: principal;
+  icp_amount: float64;
+  credits_obtained: nat64;
+  timestamp: nat64;
+};
+
+type RechargePrincipalAccount = record {
+  principal_id: text;
+  subaccount_id: opt text;
 };
 
 service : {
@@ -476,4 +488,18 @@ service : {
   get_total_stacked_credits : () -> (nat64) query;
   get_stacked_record_group_by_stack_amount : () -> (vec StackPositionRecord) query;
   get_all_mcp_names : () -> (vec text) query;
+
+  // Credit Exchange API
+  get_credits_per_icp_api: () -> (nat64) query;
+  update_icp_usd_price_api: (float64) -> (variant { Ok; Err: text });
+  simulate_credit_from_icp_api: (float64) -> (nat64) query;
+  recharge_and_convert_credits_api: (float64) -> (nat64);
+  get_user_credit_balance_api: (text) -> (nat64) query;
+  get_recharge_history_api: (text, nat64, nat64) -> (vec RechargeRecord) query;
+
+  add_recharge_principal_account_api: (RechargePrincipalAccount) -> (variant { Ok; Err: text });
+  get_recharge_principal_account_api: () -> (opt RechargePrincipalAccount) query;
+  update_recharge_principal_account_api: (RechargePrincipalAccount) -> (variant { Ok; Err: text });
+  delete_recharge_principal_account_api: () -> (variant { Ok; Err: text });
+  list_recharge_principal_accounts_api: () -> (vec RechargePrincipalAccount) query;
 }

@@ -24,9 +24,9 @@ use token_economy_types::{
     CreditActivity, CreditActivityType,
     TransferStatus as TokenTransferStatus,
     AccountInfo, TokenGrantStatus, GrantPolicy,
-    NewMcpGrant
+    NewMcpGrant, RechargePrincipalAccount
 };
-use token_economy::{record_token_activity, record_credit_activity};
+use token_economy::{record_token_activity, record_credit_activity, get_credits_per_icp, update_icp_usd_price, simulate_credit_from_icp, recharge_and_convert_credits, get_user_credit_balance, get_recharge_history};
 use crate::stable_mem_storage::INVERTED_INDEX_STORE;
 use candid::{CandidType, Deserialize};
 use ic_cdk_timers::TimerId;
@@ -1113,6 +1113,104 @@ fn get_mcp_rewards_paginated(offset: u64, limit: u64) -> Vec<RewardEntry> {
     ic_cdk::println!("CALL[get_mcp_rewards_paginated] Input: offset={}, limit={}", offset, limit);
     let result = mining_reword::get_all_mcp_rewards_paginated(offset, limit);
     ic_cdk::println!("CALL[get_mcp_rewards_paginated] Output: count={}", result.len());
+    result
+}
+
+/// Query how many Credits can be exchanged for 1 ICP
+#[ic_cdk::query]
+fn get_credits_per_icp_api() -> u64 {
+    ic_cdk::println!("CALL[get_credits_per_icp_api] Input: none");
+    let result = get_credits_per_icp();
+    ic_cdk::println!("CALL[get_credits_per_icp_api] Output: {}", result);
+    result
+}
+
+/// Admin updates ICP/USD price
+#[ic_cdk::update]
+fn update_icp_usd_price_api(new_price: f64) -> Result<(), String> {
+    let caller = ic_cdk::caller();
+    ic_cdk::println!("CALL[update_icp_usd_price_api] Input: caller={}, new_price={}", caller, new_price);
+    let result = update_icp_usd_price(caller, new_price);
+    ic_cdk::println!("CALL[update_icp_usd_price_api] Output: {:?}", result);
+    result
+}
+
+/// Simulate recharge, returns the number of Credits that can be obtained
+#[ic_cdk::query]
+fn simulate_credit_from_icp_api(icp_amount: f64) -> u64 {
+    ic_cdk::println!("CALL[simulate_credit_from_icp_api] Input: icp_amount={}", icp_amount);
+    let result = simulate_credit_from_icp(icp_amount);
+    ic_cdk::println!("CALL[simulate_credit_from_icp_api] Output: {}", result);
+    result
+}
+
+/// Actual recharge, writes recharge record and updates user balance
+#[ic_cdk::update]
+fn recharge_and_convert_credits_api(icp_amount: f64) -> u64 {
+    let caller = ic_cdk::caller();
+    ic_cdk::println!("CALL[recharge_and_convert_credits_api] Input: caller={}, icp_amount={}", caller, icp_amount);
+    let result = recharge_and_convert_credits(caller, icp_amount);
+    ic_cdk::println!("CALL[recharge_and_convert_credits_api] Output: {}", result);
+    result
+}
+
+/// Query user Credit balance
+#[ic_cdk::query]
+fn get_user_credit_balance_api(principal: String) -> u64 {
+    ic_cdk::println!("CALL[get_user_credit_balance_api] Input: principal={}", principal);
+    let p = Principal::from_text(&principal).unwrap_or(Principal::anonymous());
+    let result = get_user_credit_balance(p);
+    ic_cdk::println!("CALL[get_user_credit_balance_api] Output: {}", result);
+    result
+}
+
+/// Paginated query of recharge records
+#[ic_cdk::query]
+fn get_recharge_history_api(principal: String, offset: u64, limit: u64) -> Vec<token_economy_types::RechargeRecord> {
+    ic_cdk::println!("CALL[get_recharge_history_api] Input: principal={}, offset={}, limit={}", principal, offset, limit);
+    let p = Principal::from_text(&principal).unwrap_or(Principal::anonymous());
+    let result = get_recharge_history(p, offset, limit);
+    ic_cdk::println!("CALL[get_recharge_history_api] Output: count={}", result.len());
+    result
+}
+
+#[ic_cdk::update]
+fn add_recharge_principal_account_api(item: RechargePrincipalAccount) -> Result<(), String> {
+    ic_cdk::println!("CALL[add_recharge_principal_account_api] Input: item={:?}", item);
+    let result = token_economy::add_recharge_principal_account(item);
+    ic_cdk::println!("CALL[add_recharge_principal_account_api] Output: {:?}", result);
+    result
+}
+
+#[ic_cdk::query]
+fn get_recharge_principal_account_api() -> Option<RechargePrincipalAccount> {
+    ic_cdk::println!("CALL[get_recharge_principal_account_api] Input: none");
+    let result = token_economy::get_recharge_principal_account();
+    ic_cdk::println!("CALL[get_recharge_principal_account_api] Output: exists={}", result.is_some());
+    result
+}
+
+#[ic_cdk::update]
+fn update_recharge_principal_account_api(item: RechargePrincipalAccount) -> Result<(), String> {
+    ic_cdk::println!("CALL[update_recharge_principal_account_api] Input: item={:?}", item);
+    let result = token_economy::update_recharge_principal_account(item);
+    ic_cdk::println!("CALL[update_recharge_principal_account_api] Output: {:?}", result);
+    result
+}
+
+#[ic_cdk::update]
+fn delete_recharge_principal_account_api() -> Result<(), String> {
+    ic_cdk::println!("CALL[delete_recharge_principal_account_api] Input: none");
+    let result = token_economy::delete_recharge_principal_account();
+    ic_cdk::println!("CALL[delete_recharge_principal_account_api] Output: {:?}", result);
+    result
+}
+
+#[ic_cdk::query]
+fn list_recharge_principal_accounts_api() -> Vec<RechargePrincipalAccount> {
+    ic_cdk::println!("CALL[list_recharge_principal_accounts_api] Input: none");
+    let result = token_economy::list_recharge_principal_accounts();
+    ic_cdk::println!("CALL[list_recharge_principal_accounts_api] Output: count={}", result.len());
     result
 }
 

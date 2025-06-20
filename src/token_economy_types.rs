@@ -140,7 +140,7 @@ pub struct AccountInfo {
     pub principal_id: String,
     pub token_info: TokenInfo,
     pub created_at: u64,
-    pub updated_at: u64,
+    pub updated_at: Option<u64>,
     pub metadata: Option<String>,
 }
 
@@ -176,7 +176,7 @@ impl AccountInfo {
                 kappa_multiplier: 1.0,
             },
             created_at: ic_cdk::api::time(),
-            updated_at: ic_cdk::api::time(),
+            updated_at: None,
             metadata: None,
         }
     }
@@ -361,7 +361,7 @@ pub struct MiningRewardPolicy {
     pub quarters: Vec<QuarterRewardConfig>,
 }
 
-// 为 Vec<u64> 创建一个包装类型
+// Create a wrapper type for Vec<u64>
 #[derive(CandidType, Clone, Debug, Serialize, Deserialize)]
 pub struct RewardIdList(pub Vec<u64>);
 
@@ -375,5 +375,55 @@ impl ic_stable_structures::Storable for RewardIdList {
     }
 
     const BOUND: Bound = Bound::Bounded { max_size: 1024 * 32, is_fixed_size: false };
+}
+
+#[derive(CandidType, Serialize, Deserialize, Clone, Debug)]
+pub struct CreditConvertContract {
+    pub price_credits: f64, // Dollar price per Credit
+    pub price_icp: f64,     // Current ICP dollar price
+}
+
+impl ic_stable_structures::Storable for CreditConvertContract {
+    fn to_bytes(&self) -> std::borrow::Cow<[u8]> {
+        Cow::Owned(Encode!(self).expect("Failed to encode CreditConvertContract"))
+    }
+    fn from_bytes(bytes: std::borrow::Cow<[u8]>) -> Self {
+        Decode!(bytes.as_ref(), Self).expect("Failed to decode CreditConvertContract")
+    }
+    const BOUND: Bound = Bound::Bounded { max_size: 128, is_fixed_size: false };
+}
+
+#[derive(CandidType, Serialize, Deserialize, Clone, Debug)]
+pub struct RechargeRecord {
+    pub user: Principal,
+    pub icp_amount: f64,
+    pub credits_obtained: u64,
+    pub timestamp: u64,
+}
+
+impl ic_stable_structures::Storable for RechargeRecord {
+    fn to_bytes(&self) -> std::borrow::Cow<[u8]> {
+        Cow::Owned(Encode!(self).expect("Failed to encode RechargeRecord"))
+    }
+    fn from_bytes(bytes: std::borrow::Cow<[u8]>) -> Self {
+        Decode!(bytes.as_ref(), Self).expect("Failed to decode RechargeRecord")
+    }
+    const BOUND: Bound = Bound::Bounded { max_size: 128, is_fixed_size: false };
+}
+
+#[derive(CandidType, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct RechargePrincipalAccount {
+    pub principal_id: String, // Principal id of the user who recharges
+    pub subaccount_id: Option<String>,   // Target subaccount id for recharge
+}
+
+impl ic_stable_structures::Storable for RechargePrincipalAccount {
+    fn to_bytes(&self) -> std::borrow::Cow<[u8]> {
+        Cow::Owned(Encode!(self).expect("Failed to encode RechargePrincipalAccount"))
+    }
+    fn from_bytes(bytes: std::borrow::Cow<[u8]>) -> Self {
+        Decode!(bytes.as_ref(), Self).expect("Failed to decode RechargePrincipalAccount")
+    }
+    const BOUND: Bound = Bound::Bounded { max_size: 512, is_fixed_size: false };
 }
 

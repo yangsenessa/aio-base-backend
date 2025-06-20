@@ -479,7 +479,7 @@ mod tests {
     fn test_store_and_retrieve_with_standard_match() {
         let mut store = setup_test_store();
         
-        // 创建测试数据
+        // Create test data
         let test_item = InvertedIndexItem {
             keyword: "test".to_string(),
             keyword_group: "group1".to_string(),
@@ -489,11 +489,11 @@ mod tests {
             standard_match: "exact".to_string(),
         };
 
-        // 转换为 JSON 并存储
+        // Convert to JSON and store
         let json_str = serde_json::to_string(&vec![test_item.clone()]).unwrap();
         store.store_from_json(&json_str).unwrap();
 
-        // 验证存储
+        // Verify storage
         let all_items = store.get_all_items();
         let items: Vec<InvertedIndexItem> = serde_json::from_str(&all_items).unwrap();
         assert_eq!(items.len(), 1);
@@ -504,7 +504,7 @@ mod tests {
     fn test_find_by_keyword_with_standard_match() {
         let mut store = setup_test_store();
         
-        // 创建测试数据
+        // Create test data
         let test_items = vec![
             InvertedIndexItem {
                 keyword: "test".to_string(),
@@ -524,11 +524,11 @@ mod tests {
             },
         ];
 
-        // 存储数据
+        // Store data
         let json_str = serde_json::to_string(&test_items).unwrap();
         store.store_from_json(&json_str).unwrap();
 
-        // 验证查询
+        // Verify query
         let result = store.find_by_keyword("test");
         let items: Vec<InvertedIndexItem> = serde_json::from_str(&result).unwrap();
         assert_eq!(items.len(), 2);
@@ -540,7 +540,7 @@ mod tests {
     fn test_find_by_mcp_name_with_standard_match() {
         let mut store = setup_test_store();
         
-        // 创建测试数据
+        // Create test data
         let test_item = InvertedIndexItem {
             keyword: "test".to_string(),
             keyword_group: "group1".to_string(),
@@ -550,11 +550,11 @@ mod tests {
             standard_match: "exact".to_string(),
         };
 
-        // 存储数据
+        // Store data
         let json_str = serde_json::to_string(&vec![test_item.clone()]).unwrap();
         store.store_from_json(&json_str).unwrap();
 
-        // 验证查询
+        // Verify query
         let result = store.find_by_mcp_name("mcp1");
         let items: Vec<InvertedIndexItem> = serde_json::from_str(&result).unwrap();
         assert_eq!(items.len(), 1);
@@ -563,7 +563,7 @@ mod tests {
 
     #[test]
     fn test_validate_json_str() {
-        // 测试有效的 JSON
+        // Test valid JSON
         let valid_json = r#"[{
             "keyword": "test",
             "keyword_group": "group1",
@@ -574,7 +574,7 @@ mod tests {
         }]"#;
         assert!(validate_json_str(valid_json).is_ok());
 
-        // 测试无效的 JSON（缺少 standard_match）
+        // Test invalid JSON (missing standard_match)
         let invalid_json = r#"[{
             "keyword": "test",
             "keyword_group": "group1",
@@ -584,7 +584,7 @@ mod tests {
         }]"#;
         assert!(validate_json_str(invalid_json).is_err());
 
-        // 测试无效的 JSON（standard_match 为空）
+        // Test invalid JSON (empty standard_match)
         let empty_standard_match_json = r#"[{
             "keyword": "test",
             "keyword_group": "group1",

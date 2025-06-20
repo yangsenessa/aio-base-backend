@@ -19,7 +19,7 @@ use ic_stable_structures::DefaultMemoryImpl;
 use std::borrow::Cow;
 use serde::{Serialize, Deserialize};
 use crate::mcp_asset_types;
-use crate::stable_mem_storage::{NEWUSER_GRANTS, NEWMCP_GRANTS, TOKEN_ACTIVITIES, CREDIT_ACTIVITIES, EMISSION_POLICY, GRANT_POLICIES};
+use crate::stable_mem_storage::{NEWUSER_GRANTS, NEWMCP_GRANTS, TOKEN_ACTIVITIES, CREDIT_ACTIVITIES, EMISSION_POLICY, GRANT_POLICIES, CREDIT_CONVERT_CONTRACT, RECHARGE_RECORDS, RECHARGE_PRINCIPAL_ACCOUNTS};
 
 // Re-export NumTokens for public use
 pub use icrc_ledger_types::icrc1::transfer::NumTokens;
@@ -35,6 +35,10 @@ const BASE_KAPPA: f64 = 1.0; // Base kappa multiplier
 const DEFAULT_BASE_RATE: u64 = 100;
 const DEFAULT_KAPPA_FACTOR: f64 = 1.0;
 const DEFAULT_STAKING_BONUS: f64 = 0.1;
+const ADMIN_PRINCIPAL: &str = "aaaaa-aa"; // TODO: Replace with actual admin Principal
+const DEFAULT_ICP_USD_PRICE: f64 = 5.5;
+const DEFAULT_CREDIT_USD_PRICE: f64 = 0.0001;
+const CREDIT_CONTRACT_KEY: &str = "global";
 
 // Account Management
 pub async fn get_account_info(principal_id: String) -> Option<AccountInfo> {
@@ -55,7 +59,7 @@ pub async fn get_account_info(principal_id: String) -> Option<AccountInfo> {
         Ok((balance,)) => {
             // update account balance
             account.token_info.token_balance = balance.0.try_into().ok()?;
-            account.updated_at = ic_cdk::api::time();
+            account.updated_at = Some(ic_cdk::api::time());
             
             // save updated account info
             upsert_account(account.clone()).ok()?;
@@ -84,7 +88,7 @@ pub fn update_account_balance(principal_id: String, token_amount: i64, credit_am
 
     account.token_info.token_balance = (account.get_token_balance() as i64 + token_amount) as u64;
     account.token_info.credit_balance = (account.get_credit_balance() as i64 + credit_amount) as u64;
-    account.updated_at = time();
+    account.updated_at = Some(time());
 
     upsert_account(account)
 }
@@ -107,7 +111,7 @@ pub fn stack_credits(principal_id: String, mcp_name:String ,amount: u64) -> Resu
 
     account.token_info.credit_balance -= amount;
     account.token_info.staked_credits += amount;
-    account.updated_at = time();
+    account.updated_at = Some(time());
     
     let result = upsert_account(account.clone())?;
 
@@ -149,7 +153,7 @@ pub fn unstack_credits(principal_id: String, amount: u64) -> Result<AccountInfo,
 
     account.token_info.staked_credits -= amount;
     account.token_info.credit_balance += amount;
-    account.updated_at = time();
+    account.updated_at = Some(time());
     
     let result = upsert_account(account.clone())?;
 
@@ -182,8 +186,8 @@ pub fn transfer_tokens(from: String, to: String, amount: u64) -> Result<AccountI
     from_account.token_info.token_balance -= amount;
     to_account.token_info.token_balance += amount;
     
-    from_account.updated_at = time();
-    to_account.updated_at = time();
+    from_account.updated_at = Some(time());
+    to_account.updated_at = Some(time());
     
     upsert_account(from_account.clone())?;
     upsert_account(to_account.clone())?;
@@ -213,7 +217,7 @@ pub fn use_credits(principal_id: String, amount: u64, service: String, metadata:
     }
 
     account.token_info.credit_balance -= amount;
-    account.updated_at = time();
+    account.updated_at = Some(time());
     
     let result = upsert_account(account.clone())?;
     
@@ -271,7 +275,7 @@ pub fn claim_grant(principal_id: &str) -> Result<u64, String> {
     // Update account credit balance
     let mut account = account.clone();
     account.token_info.credit_balance += remaining_amount;
-    account.updated_at = current_time;
+    account.updated_at = Some(current_time);
     ic_cdk::println!("Account updated: {:?}", account);
     upsert_account(account)?;
 
@@ -658,7 +662,7 @@ pub fn claim_mcp_grant(principal_id: &str) -> Result<u64, String> {
     // Update account credit balance
     let mut account = account.clone();
     account.token_info.credit_balance += total_claimed;
-    account.updated_at = current_time;
+    account.updated_at = Some(current_time);
     upsert_account(account)?;
 
     // Record credit activity
@@ -770,7 +774,7 @@ pub fn claim_mcp_grant_with_mcpname(principal_id: &str, mcp_name: &str) -> Resul
     // Update account credit balance
     let mut account = account.clone();
     account.token_info.credit_balance += remaining_amount;
-    account.updated_at = current_time;
+    account.updated_at = Some(current_time);
     upsert_account(account)?;
 
     // Record credit activity
@@ -820,4 +824,159 @@ pub enum ICRC1TransferError {
 pub enum ICRC1TransferResult {
     Ok(candid::Nat),
     Err(ICRC1TransferError),
+}
+
+/// Get how many Credits 1 ICP can exchange for currently
+pub fn get_credits_per_icp() -> u64 {
+    CREDIT_CONVERT_CONTRACT.with(|store| {
+        let store = store.borrow();
+        let contract = store.get(&CREDIT_CONTRACT_KEY.to_string())
+            .unwrap_or(CreditConvertContract {
+                price_credits: DEFAULT_CREDIT_USD_PRICE,
+                price_icp: DEFAULT_ICP_USD_PRICE,
+            });
+        (contract.price_icp / contract.price_credits) as u64
+    })
+}
+
+/// Only admin can update ICP/USD price
+pub fn update_icp_usd_price(caller: Principal, new_price: f64) -> Result<(), String> {
+    if caller.to_text() != ADMIN_PRINCIPAL {
+        return Err("No permission: only admin can operate".to_string());
+    }
+    CREDIT_CONVERT_CONTRACT.with(|store| {
+        let mut store = store.borrow_mut();
+        let mut contract = store.get(&CREDIT_CONTRACT_KEY.to_string())
+            .unwrap_or(CreditConvertContract {
+                price_credits: DEFAULT_CREDIT_USD_PRICE,
+                price_icp: DEFAULT_ICP_USD_PRICE,
+            });
+        contract.price_icp = new_price;
+        store.insert(CREDIT_CONTRACT_KEY.to_string(), contract);
+        Ok(())
+    })
+}
+
+/// Simulate recharge, return how many Credits can be obtained
+pub fn simulate_credit_from_icp(icp_amount: f64) -> u64 {
+    CREDIT_CONVERT_CONTRACT.with(|store| {
+        let store = store.borrow();
+        let contract = store.get(&CREDIT_CONTRACT_KEY.to_string())
+            .unwrap_or(CreditConvertContract {
+                price_credits: DEFAULT_CREDIT_USD_PRICE,
+                price_icp: DEFAULT_ICP_USD_PRICE,
+            });
+        ((icp_amount * contract.price_icp) / contract.price_credits) as u64
+    })
+}
+
+/// Actual recharge, write recharge record and update user balance
+pub fn recharge_and_convert_credits(caller: Principal, icp_amount: f64) -> u64 {
+    let credits = simulate_credit_from_icp(icp_amount);
+    let now = ic_cdk::api::time();
+    // Write recharge record
+    RECHARGE_RECORDS.with(|records| {
+        let mut records = records.borrow_mut();
+        let id = records.len() as u64;
+        let record = RechargeRecord {
+            user: caller,
+            icp_amount,
+            credits_obtained: credits,
+            timestamp: now,
+        };
+        records.insert(id, record);
+    });
+    // Update user balance
+    let principal_id = caller.to_text();
+    let mut account = get_account(principal_id.clone())
+        .unwrap_or(AccountInfo::new(principal_id.clone()));
+    account.token_info.credit_balance += credits;
+    account.updated_at = Some(now);
+    upsert_account(account).ok();
+    credits
+}
+
+/// Query user Credit balance
+pub fn get_user_credit_balance(principal: Principal) -> u64 {
+    let principal_id = principal.to_text();
+    get_account(principal_id)
+        .map(|acc| acc.token_info.credit_balance)
+        .unwrap_or(0)
+}
+
+/// Paginated query of recharge records
+pub fn get_recharge_history(principal: Principal, offset: u64, limit: u64) -> Vec<RechargeRecord> {
+    RECHARGE_RECORDS.with(|records| {
+        let records = records.borrow();
+        records.iter()
+            .filter(|(_, rec)| rec.user == principal)
+            .skip(offset as usize)
+            .take(limit as usize)
+            .map(|(_, rec)| rec.clone())
+            .collect()
+    })
+}
+
+// ========== ICP Recharge Principal-Account Mapping Table CRUD ==========
+
+/// Add principal-account mapping (only one item allowed)
+pub fn add_recharge_principal_account(item: RechargePrincipalAccount) -> Result<(), String> {
+    RECHARGE_PRINCIPAL_ACCOUNTS.with(|vec| {
+        let mut vec = vec.borrow_mut();
+        // clear all existing items
+        while vec.len() > 0 {
+            vec.pop();
+        }
+        // Add the new item
+        let _ = vec.push(&item);
+        Ok(())
+    })
+}
+
+/// Get principal-account mapping (returns the single item)
+pub fn get_recharge_principal_account() -> Option<RechargePrincipalAccount> {
+    RECHARGE_PRINCIPAL_ACCOUNTS.with(|vec| {
+        let vec = vec.borrow();
+        if vec.len() > 0 {
+            Some(vec.get(0).unwrap().clone())
+        } else {
+            None
+        }
+    })
+}
+
+/// Update principal-account mapping (updates the single item)
+pub fn update_recharge_principal_account(item: RechargePrincipalAccount) -> Result<(), String> {
+    RECHARGE_PRINCIPAL_ACCOUNTS.with(|vec| {
+        let mut vec = vec.borrow_mut();
+        vec.set(0, &item);
+        Ok(())
+    })
+}
+
+/// Delete principal-account mapping (removes the single item)
+pub fn delete_recharge_principal_account() -> Result<(), String> {
+    RECHARGE_PRINCIPAL_ACCOUNTS.with(|vec| {
+        let mut vec = vec.borrow_mut();
+        if vec.len() > 0 {
+            while vec.len() > 0 {
+                vec.pop();
+            }
+            Ok(())
+        } else {
+            Err("No principal account mapping exists to delete".to_string())
+        }
+    })
+}
+
+/// Get principal-account mapping list (returns the single item if exists)
+pub fn list_recharge_principal_accounts() -> Vec<RechargePrincipalAccount> {
+    RECHARGE_PRINCIPAL_ACCOUNTS.with(|vec| {
+        let vec = vec.borrow();
+        if vec.len() > 0 {
+            vec![vec.get(0).unwrap().clone()]
+        } else {
+            vec![]
+        }
+    })
 } 
