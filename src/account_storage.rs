@@ -38,37 +38,31 @@ impl ic_stable_structures::Storable for AccountInfo {
 
     fn from_bytes(bytes: std::borrow::Cow<[u8]>) -> Self {
         // Try to decode as current AccountInfo first
-        match Decode!(bytes.as_ref(), Self) {
-            Ok(account) => account,
-            Err(_) => {
-                // If decoding fails, try to decode as Option<AccountInfo>
-                match Decode!(bytes.as_ref(), Option<Self>) {
-                    Ok(Some(account)) => account,
-                    Ok(None) => {
-                        // If it's null/None, return a default AccountInfo
-                        // This should not happen in normal cases, but we handle it gracefully
-                        Self {
-                            principal_id: "unknown".to_string(),
-                            token_info: crate::token_economy_types::TokenInfo {
-                                token_balance: 0,
-                                credit_balance: 0,
-                                staked_credits: 0,
-                                kappa_multiplier: 1.0,
-                            },
-                            created_at: ic_cdk::api::time(),
-                            updated_at: None,
-                            metadata: Some("recovered_from_null".to_string()),
-                        }
-                    },
-                    Err(_) => {
-                        // If both fail, return the original error
-                        Decode!(bytes.as_ref(), Self).expect("Failed to decode AccountInfo")
-                    }
-                }
-            }
+        if let Ok(account_info) = Decode!(bytes.as_ref(), Self) {
+            return account_info;
         }
+        
+        // If that fails, try to decode as the old format and convert
+        // The old format had flat fields instead of nested token_info
+        if let Ok((principal_id, token_balance, credit_balance, staked_credits, kappa_multiplier, created_at, updated_at, metadata)) = 
+            Decode!(bytes.as_ref(), (String, u64, u64, u64, f64, u64, Option<u64>, Option<String>)) {
+            return Self {
+                principal_id,
+                token_info: crate::token_economy_types::TokenInfo {
+                    token_balance,
+                    credit_balance,
+                    staked_credits,
+                    kappa_multiplier,
+                },
+                created_at,
+                updated_at,
+                metadata,
+            };
+        }
+        
+        // If all decoding attempts fail, panic with a more descriptive error
+        panic!("Failed to decode AccountInfo: data format is not compatible with current or previous versions");
     }
-
     const BOUND: Bound = Bound::Bounded { max_size: 20000 * 1024, is_fixed_size: false };
 }
 
