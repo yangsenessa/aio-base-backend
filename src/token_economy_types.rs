@@ -7,6 +7,7 @@ use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use candid::Principal;
+use num_traits::ToPrimitive;
 use crate::mining_reword::{RewardEntry, UserRewardKey};
 
 type Memory = VirtualMemory<DefaultMemoryImpl>;
@@ -170,9 +171,9 @@ impl AccountInfo {
         Self {
             principal_id,
             token_info: TokenInfo {
-                token_balance: 0,
-                credit_balance: 0,
-                staked_credits: 0,
+                token_balance: 0u64,
+                credit_balance: 0u64,
+                staked_credits: 0u64,
                 kappa_multiplier: 1.0,
             },
             created_at: ic_cdk::api::time(),

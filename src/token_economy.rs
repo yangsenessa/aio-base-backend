@@ -2,6 +2,7 @@ use candid::{CandidType, Principal, Decode, Encode};
 use ic_cdk::api::time;
 use ic_stable_structures::StableBTreeMap;
 use std::cell::RefCell;
+use num_traits::ToPrimitive;
 use crate::token_economy_types::{
     EmissionPolicy, SubscriptionPlan, TokenGrant, TokenGrantKey,
     TokenActivity, TokenActivityType, CreditActivity, CreditActivityType,
@@ -44,7 +45,7 @@ const CREDIT_CONTRACT_KEY: &str = "global";
 pub async fn get_account_info(principal_id: String) -> Option<AccountInfo> {
     let mut account = get_account(principal_id.clone())?;
     
-    // get token balance from ledger canister
+    // get token balance from ledger canisterƒ√
     let icrc_account = icrc_ledger_types::icrc1::account::Account {
         owner: candid::Principal::from_text(&principal_id).ok()?,
         subaccount: None,
@@ -58,7 +59,7 @@ pub async fn get_account_info(principal_id: String) -> Option<AccountInfo> {
     match result {
         Ok((balance,)) => {
             // update account balance
-            account.token_info.token_balance = balance.0.try_into().ok()?;
+            account.token_info.token_balance = balance.0.to_u64().unwrap_or(0);
             account.updated_at = Some(ic_cdk::api::time());
             
             // save updated account info
@@ -109,8 +110,11 @@ pub fn stack_credits(principal_id: String, mcp_name:String ,amount: u64) -> Resu
     // Store original account state for potential rollback
     let original_account = account.clone();
 
-    account.token_info.credit_balance -= amount;
-    account.token_info.staked_credits += amount;
+    let new_credit_balance = account.get_credit_balance() - amount;
+    let new_staked_credits = account.get_staked_credits() + amount;
+    
+    account.token_info.credit_balance = (new_credit_balance as i64) as u64;
+    account.token_info.staked_credits = (new_staked_credits as i64) as u64;
     account.updated_at = Some(time());
     
     let result = upsert_account(account.clone())?;
@@ -151,8 +155,11 @@ pub fn unstack_credits(principal_id: String, amount: u64) -> Result<AccountInfo,
         return Err("Insufficient staked credits".to_string());
     }
 
-    account.token_info.staked_credits -= amount;
-    account.token_info.credit_balance += amount;
+    let new_staked_credits = account.get_staked_credits() - amount;
+    let new_credit_balance = account.get_credit_balance() + amount;
+    
+    account.token_info.staked_credits = (new_staked_credits as i64) as u64;
+    account.token_info.credit_balance = (new_credit_balance as i64) as u64;
     account.updated_at = Some(time());
     
     let result = upsert_account(account.clone())?;
@@ -183,8 +190,11 @@ pub fn transfer_tokens(from: String, to: String, amount: u64) -> Result<AccountI
         return Err("Insufficient token balance".to_string());
     }
 
-    from_account.token_info.token_balance -= amount;
-    to_account.token_info.token_balance += amount;
+    let from_new_balance = from_account.get_token_balance() - amount;
+    let to_new_balance = to_account.get_token_balance() + amount;
+    
+    from_account.token_info.token_balance = (from_new_balance as i64) as u64;
+    to_account.token_info.token_balance = (to_new_balance as i64) as u64;
     
     from_account.updated_at = Some(time());
     to_account.updated_at = Some(time());
@@ -216,7 +226,8 @@ pub fn use_credits(principal_id: String, amount: u64, service: String, metadata:
         return Err("Insufficient credit balance".to_string());
     }
 
-    account.token_info.credit_balance -= amount;
+    let new_credit_balance = account.get_credit_balance() - amount;
+    account.token_info.credit_balance = (new_credit_balance as i64) as u64;
     account.updated_at = Some(time());
     
     let result = upsert_account(account.clone())?;
@@ -274,7 +285,8 @@ pub fn claim_grant(principal_id: &str) -> Result<u64, String> {
 
     // Update account credit balance
     let mut account = account.clone();
-    account.token_info.credit_balance += remaining_amount;
+    let new_credit_balance = account.get_credit_balance() + remaining_amount;
+    account.token_info.credit_balance = (new_credit_balance as i64) as u64;
     account.updated_at = Some(current_time);
     ic_cdk::println!("Account updated: {:?}", account);
     upsert_account(account)?;
@@ -661,7 +673,8 @@ pub fn claim_mcp_grant(principal_id: &str) -> Result<u64, String> {
 
     // Update account credit balance
     let mut account = account.clone();
-    account.token_info.credit_balance += total_claimed;
+    let new_credit_balance = account.get_credit_balance() + total_claimed;
+    account.token_info.credit_balance = (new_credit_balance as i64) as u64;
     account.updated_at = Some(current_time);
     upsert_account(account)?;
 
@@ -773,7 +786,8 @@ pub fn claim_mcp_grant_with_mcpname(principal_id: &str, mcp_name: &str) -> Resul
 
     // Update account credit balance
     let mut account = account.clone();
-    account.token_info.credit_balance += remaining_amount;
+    let new_credit_balance = account.get_credit_balance() + remaining_amount;
+    account.token_info.credit_balance = (new_credit_balance as i64) as u64;
     account.updated_at = Some(current_time);
     upsert_account(account)?;
 
@@ -890,7 +904,8 @@ pub fn recharge_and_convert_credits(caller: Principal, icp_amount: f64) -> u64 {
     let principal_id = caller.to_text();
     let mut account = get_account(principal_id.clone())
         .unwrap_or(AccountInfo::new(principal_id.clone()));
-    account.token_info.credit_balance += credits;
+    let new_credit_balance = account.get_credit_balance() + credits;
+    account.token_info.credit_balance = (new_credit_balance as i64) as u64;
     account.updated_at = Some(now);
     upsert_account(account).ok();
     credits
@@ -900,7 +915,7 @@ pub fn recharge_and_convert_credits(caller: Principal, icp_amount: f64) -> u64 {
 pub fn get_user_credit_balance(principal: Principal) -> u64 {
     let principal_id = principal.to_text();
     get_account(principal_id)
-        .map(|acc| acc.token_info.credit_balance)
+        .map(|acc| acc.get_credit_balance())
         .unwrap_or(0)
 }
 

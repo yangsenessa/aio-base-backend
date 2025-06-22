@@ -5,10 +5,12 @@ use ic_stable_structures::memory_manager::{MemoryId, MemoryManager, VirtualMemor
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::cell::RefCell;
-use crate::token_economy_types::AccountInfo;
+use crate::token_economy_types::{AccountInfo};
+use crate::stable_mem_storage::ACCOUNTS;
 use std::collections::HashMap;
 use candid::Principal;
 use std::sync::LazyLock;
+use num_traits::ToPrimitive;
 
 type Memory = VirtualMemory<DefaultMemoryImpl>;
 
@@ -37,15 +39,36 @@ impl ic_stable_structures::Storable for AccountInfo {
     }
 
     fn from_bytes(bytes: std::borrow::Cow<[u8]>) -> Self {
-        // Try to decode as current AccountInfo first
+        ic_cdk::println!("Attempting to decode AccountInfo with {} bytes", bytes.len());
+        
+        // Try to decode as current AccountInfo first (with u64 fields)
         if let Ok(account_info) = Decode!(bytes.as_ref(), Self) {
+            ic_cdk::println!("Successfully decoded as current AccountInfo format");
             return account_info;
         }
         
-        // If that fails, try to decode as the old format and convert
-        // The old format had flat fields instead of nested token_info
+        // Try to decode as AccountInfo with candid::Nat fields (intermediate format)
+        if let Ok((principal_id, token_balance, credit_balance, staked_credits, kappa_multiplier, created_at, updated_at, metadata)) = 
+            Decode!(bytes.as_ref(), (String, candid::Nat, candid::Nat, candid::Nat, f64, u64, Option<u64>, Option<String>)) {
+            ic_cdk::println!("Successfully decoded as candid::Nat format");
+            return Self {
+                principal_id,
+                token_info: crate::token_economy_types::TokenInfo {
+                    token_balance: token_balance.0.to_u64().unwrap_or(0),
+                    credit_balance: credit_balance.0.to_u64().unwrap_or(0),
+                    staked_credits: staked_credits.0.to_u64().unwrap_or(0),
+                    kappa_multiplier,
+                },
+                created_at,
+                updated_at,
+                metadata,
+            };
+        }
+        
+        // Try to decode as the old format with flat fields (u64)
         if let Ok((principal_id, token_balance, credit_balance, staked_credits, kappa_multiplier, created_at, updated_at, metadata)) = 
             Decode!(bytes.as_ref(), (String, u64, u64, u64, f64, u64, Option<u64>, Option<String>)) {
+            ic_cdk::println!("Successfully decoded as flat u64 format");
             return Self {
                 principal_id,
                 token_info: crate::token_economy_types::TokenInfo {
@@ -60,22 +83,51 @@ impl ic_stable_structures::Storable for AccountInfo {
             };
         }
         
-        // If all decoding attempts fail, panic with a more descriptive error
-        panic!("Failed to decode AccountInfo: data format is not compatible with current or previous versions");
+        // Try to decode as a simpler format with just principal_id and basic fields
+        if let Ok((principal_id, token_balance, credit_balance, created_at)) = 
+            Decode!(bytes.as_ref(), (String, u64, u64, u64)) {
+            ic_cdk::println!("Successfully decoded as simple format");
+            return Self {
+                principal_id,
+                token_info: crate::token_economy_types::TokenInfo {
+                    token_balance,
+                    credit_balance,
+                    staked_credits: 0,
+                    kappa_multiplier: 1.0,
+                },
+                created_at,
+                updated_at: None,
+                metadata: None,
+            };
+        }
+        
+        // Try to decode as a tuple with candid::Nat for timestamps
+        if let Ok((principal_id, token_balance, credit_balance, staked_credits, kappa_multiplier, created_at, updated_at, metadata)) = 
+            Decode!(bytes.as_ref(), (String, candid::Nat, candid::Nat, candid::Nat, f64, candid::Nat, Option<candid::Nat>, Option<String>)) {
+            ic_cdk::println!("Successfully decoded as candid::Nat with candid::Nat timestamps");
+            return Self {
+                principal_id,
+                token_info: crate::token_economy_types::TokenInfo {
+                    token_balance: token_balance.0.to_u64().unwrap_or(0),
+                    credit_balance: credit_balance.0.to_u64().unwrap_or(0),
+                    staked_credits: staked_credits.0.to_u64().unwrap_or(0),
+                    kappa_multiplier,
+                },
+                created_at: created_at.0.to_u64().unwrap_or(ic_cdk::api::time()),
+                updated_at: updated_at.map(|t| t.0.to_u64().unwrap_or(0)),
+                metadata,
+            };
+        }
+        
+        // If all decoding attempts fail, panic with detailed error information
+        ic_cdk::println!("Error: Completely failed to decode AccountInfo data. Bytes length: {}", bytes.len());
+        ic_cdk::println!("First 20 bytes: {:?}", &bytes[..std::cmp::min(20, bytes.len())]);
+        
+        panic!("Failed to decode AccountInfo: data format is not compatible with any known versions. Data may be corrupted. Bytes length: {}", bytes.len());
     }
     const BOUND: Bound = Bound::Bounded { max_size: 20000 * 1024, is_fixed_size: false };
 }
 
-thread_local! {
-    static MEMORY_MANAGER: RefCell<MemoryManager<DefaultMemoryImpl>> = 
-        RefCell::new(MemoryManager::init(DefaultMemoryImpl::default()));
-    
-    static ACCOUNTS: RefCell<StableBTreeMap<AccountKey, AccountInfo, Memory>> = RefCell::new(
-        StableBTreeMap::init(
-            MEMORY_MANAGER.with(|m| m.borrow().get(MemoryId::new(10)))
-        )
-    );
-}
 
 /// Add or update an account
 pub fn upsert_account(account: AccountInfo) -> Result<AccountInfo, String> {

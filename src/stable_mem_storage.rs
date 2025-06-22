@@ -4,6 +4,8 @@ use ic_stable_structures::memory_manager::{MemoryId, MemoryManager, VirtualMemor
 use std::cell::RefCell;
 use crate::mining_reword::{MiningRewardPolicy, RewardEntry, UserRewardKey};
 use crate::token_economy_types::RewardIdList;
+use crate::account_storage::AccountKey;
+use crate::token_economy_types::AccountInfo;
 
 // Type alias for memory
 pub type Memory = VirtualMemory<DefaultMemoryImpl>;
@@ -152,5 +154,11 @@ thread_local! {
         StableVec::init(
             MEMORY_MANAGER.with(|m| m.borrow().get(MemoryId::new(53)))
         ).unwrap()
+    );
+
+    pub static ACCOUNTS: RefCell<StableBTreeMap<AccountKey, AccountInfo, Memory>> = RefCell::new(
+        StableBTreeMap::init(
+            MEMORY_MANAGER.with(|m| m.borrow().get(MemoryId::new(10)))
+        )
     );
 } 
