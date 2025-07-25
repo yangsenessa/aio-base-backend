@@ -213,6 +213,11 @@ impl InvertedIndexStore {
         let mut items_with_matches: Vec<(InvertedIndexItem, usize)> = self.items
             .iter()
             .filter_map(|(k, v)| {
+                // Skip items where method_name is NOT 'help' but keyword or keyword_group contains 'help'
+                if v.method_name != "help" && (v.keyword.to_lowercase().contains("help") || v.keyword_group.to_lowercase().contains("help")) {
+                    return None;
+                }
+                
                 let key_str = String::from_utf8_lossy(&k).to_lowercase();
                 // Count how many parts of the keyword match in this item
                 let match_count = keyword_parts.iter()
@@ -243,7 +248,13 @@ impl InvertedIndexStore {
     pub fn find_by_keyword_group(&self, group: &str) -> String {
         let items = self.items
             .iter()
-            .filter(|(_, v)| v.keyword_group == group)
+            .filter(|(_, v)| {
+                // Skip items where method_name is NOT 'help' but keyword or keyword_group contains 'help'
+                if v.method_name != "help" && (v.keyword.to_lowercase().contains("help") || v.keyword_group.to_lowercase().contains("help")) {
+                    return false;
+                }
+                v.keyword_group == group
+            })
             .map(|(_, v)| v.clone())
             .collect::<Vec<_>>();
         ic_cdk::println!("Found {} items for group: {}", items.len(), group);
@@ -384,6 +395,11 @@ impl InvertedIndexStore {
                 // Skip items with method_name 'help'
                 if item.method_name == "help" {
                     ic_cdk::println!("Skipping help item for keyword {:?}", keyword);
+                    continue;
+                }
+                // Skip items where method_name is NOT 'help' but keyword or keyword_group contains 'help'
+                if item.method_name != "help" && (item.keyword.to_lowercase().contains("help") || item.keyword_group.to_lowercase().contains("help")) {
+                    ic_cdk::println!("Skipping item with help in keyword/keyword_group for non-help method: {:?}", item);
                     continue;
                 }
                 // Skip items with confidence < 0.7
