@@ -83,6 +83,37 @@ This is the backend service for the AIO platform, providing core functionality f
   - Operation statistics
   - Historical data analysis
 
+### User Profile Management
+- User profile creation and management
+- Multi-authentication method support
+- Profile data indexing and search
+- Privacy and security features
+
+#### Key User Profile Features:
+- **Profile Management**
+  - Create and update user profiles
+  - Support for multiple authentication methods (Wallet, Google, Internet Identity)
+  - Flexible profile data structure with optional fields
+  - Automatic timestamp management (created_at, updated_at)
+
+- **Authentication Integration**
+  - Principal ID-based authentication
+  - User ID management
+  - Email-based profile lookup
+  - Login status tracking
+
+- **Data Indexing**
+  - Multi-index support for fast lookups
+  - Principal ID indexing for authentication
+  - User ID indexing for profile management
+  - Email indexing for contact purposes
+
+- **Privacy & Security**
+  - Optional metadata support for extensibility
+  - Secure storage with stable memory structures
+  - Audit trail maintenance
+  - Data integrity preservation
+
 ## API Endpoints
 
 ### Agent API
@@ -124,6 +155,58 @@ This is the backend service for the AIO platform, providing core functionality f
 - `calculate_emission`: Compute token emissions
 - `create_token_grant`: Create new token grants
 - `claim_vested_tokens`: Claim vested tokens
+
+### User Profile API
+- `upsert_user_profile`: Create or update user profile
+- `get_user_profile_by_principal`: Retrieve profile by principal ID
+- `get_user_profile_by_user_id`: Retrieve profile by user ID
+- `get_user_profile_by_email`: Retrieve profile by email address
+- `update_user_nickname`: Update user nickname
+- `get_user_profiles_paginated`: List all profiles with pagination
+- `delete_user_profile`: Remove user profile
+- `get_total_user_profiles`: Get total number of profiles
+
+## Data Structures
+
+### UserProfile Structure
+The UserProfile structure provides comprehensive user management capabilities:
+
+```rust
+pub struct UserProfile {
+    pub user_id: String,                    // Unique user identifier
+    pub principal_id: String,               // Internet Computer principal ID
+    pub name: Option<String>,               // Legacy compatibility field
+    pub nickname: String,                   // User display name
+    pub login_method: LoginMethod,          // Authentication method used
+    pub login_status: LoginStatus,          // Current authentication status
+    pub email: Option<String>,              // User email address (optional)
+    pub picture: Option<String>,            // Profile picture URL (optional)
+    pub wallet_address: Option<String>,     // Wallet address (optional)
+    pub created_at: u64,                    // Profile creation timestamp
+    pub updated_at: u64,                    // Last update timestamp
+    pub metadata: Option<String>,           // Additional JSON metadata
+}
+```
+
+### Authentication Enums
+```rust
+pub enum LoginMethod {
+    Wallet,     // Wallet-based authentication
+    Google,     // Google OAuth authentication
+    II,         // Internet Identity authentication
+}
+
+pub enum LoginStatus {
+    Authenticated,      // User is currently authenticated
+    Unauthenticated,    // User is not authenticated
+}
+```
+
+### Storage Architecture
+- **Main Storage**: `StableVec<UserProfile>` for profile data persistence
+- **Indexing**: Multiple `StableBTreeMap` structures for fast lookups
+- **Memory Management**: Centralized memory allocation via `stable_mem_storage.rs`
+- **Data Integrity**: Automatic index synchronization and validation
 
 ## Development
 

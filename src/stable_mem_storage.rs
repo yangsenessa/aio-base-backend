@@ -161,4 +161,26 @@ thread_local! {
             MEMORY_MANAGER.with(|m| m.borrow().get(MemoryId::new(10)))
         )
     );
+
+    // Society Profile Storage
+    pub static USER_PROFILES: RefCell<StableVec<crate::society_profile_types::UserProfile, Memory>> = RefCell::new(
+        StableVec::init(
+            MEMORY_MANAGER.with(|m| m.borrow().get(MemoryId::new(60)))
+        ).unwrap()
+    );
+    pub static PRINCIPAL_INDEX: RefCell<StableBTreeMap<crate::society_profile_types::PrincipalKey, u64, Memory>> = RefCell::new(
+        StableBTreeMap::init(
+            MEMORY_MANAGER.with(|m| m.borrow().get(MemoryId::new(61)))
+        )
+    );
+    pub static USER_ID_INDEX: RefCell<StableBTreeMap<crate::society_profile_types::UserIdKey, u64, Memory>> = RefCell::new(
+        StableBTreeMap::init(
+            MEMORY_MANAGER.with(|m| m.borrow().get(MemoryId::new(62)))
+        )
+    );
+    pub static EMAIL_INDEX: RefCell<StableBTreeMap<crate::society_profile_types::EmailKey, u64, Memory>> = RefCell::new(
+        StableBTreeMap::init(
+            MEMORY_MANAGER.with(|m| m.borrow().get(MemoryId::new(63)))
+        )
+    );
 } 

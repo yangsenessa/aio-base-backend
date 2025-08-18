@@ -5,6 +5,7 @@ mod aio_invert_index_types;
 mod aio_protocal_types;
 mod account_storage;
 mod trace_storage;
+mod society_profile_types;
 pub mod mining_reword;
 pub mod token_economy_types;
 pub mod token_economy;
@@ -13,6 +14,7 @@ pub mod stable_mem_storage;
 use agent_asset_types::AgentItem;
 use mcp_asset_types::{McpItem, McpStackRecord};
 use trace_storage::{TraceLog, IOValue};
+use society_profile_types::UserProfile;
 use ic_cdk::caller;
 use aio_protocal_types::AioIndexManager;
 use serde_json;
@@ -1213,4 +1215,72 @@ fn list_recharge_principal_accounts_api() -> Vec<RechargePrincipalAccount> {
     ic_cdk::println!("CALL[list_recharge_principal_accounts_api] Output: count={}", result.len());
     result
 }
+
+// ==== User Profile API ====
+
+#[ic_cdk::update]
+fn upsert_user_profile(profile: UserProfile) -> Result<u64, String> {
+    ic_cdk::println!("CALL[upsert_user_profile] Input: profile={:?}", profile);
+    let result = society_profile_types::upsert_user_profile(profile);
+    ic_cdk::println!("CALL[upsert_user_profile] Output: {:?}", result);
+    result
+}
+
+#[ic_cdk::query]
+fn get_user_profile_by_principal(principal_id: String) -> Option<UserProfile> {
+    ic_cdk::println!("CALL[get_user_profile_by_principal] Input: principal_id={}", principal_id);
+    let result = society_profile_types::get_user_profile_by_principal(principal_id);
+    ic_cdk::println!("CALL[get_user_profile_by_principal] Output: exists={}", result.is_some());
+    result
+}
+
+#[ic_cdk::query]
+fn get_user_profile_by_user_id(user_id: String) -> Option<UserProfile> {
+    ic_cdk::println!("CALL[get_user_profile_by_user_id] Input: user_id={}", user_id);
+    let result = society_profile_types::get_user_profile_by_user_id(user_id);
+    ic_cdk::println!("CALL[get_user_profile_by_user_id] Output: exists={}", result.is_some());
+    result
+}
+
+#[ic_cdk::query]
+fn get_user_profile_by_email(email: String) -> Option<UserProfile> {
+    ic_cdk::println!("CALL[get_user_profile_by_email] Input: email={}", email);
+    let result = society_profile_types::get_user_profile_by_email(email);
+    ic_cdk::println!("CALL[get_user_profile_by_email] Output: exists={}", result.is_some());
+    result
+}
+
+#[ic_cdk::update]
+fn update_user_nickname(principal_id: String, nickname: String) -> Result<UserProfile, String> {
+    ic_cdk::println!("CALL[update_user_nickname] Input: principal_id={}, nickname={}", principal_id, nickname);
+    let result = society_profile_types::update_user_nickname(principal_id, nickname);
+    ic_cdk::println!("CALL[update_user_nickname] Output: {:?}", result);
+    result
+}
+
+#[ic_cdk::query]
+fn get_user_profiles_paginated(offset: u64, limit: u64) -> Vec<UserProfile> {
+    ic_cdk::println!("CALL[get_user_profiles_paginated] Input: offset={}, limit={}", offset, limit);
+    let result = society_profile_types::get_user_profiles_paginated(offset, limit as usize);
+    ic_cdk::println!("CALL[get_user_profiles_paginated] Output: count={}", result.len());
+    result
+}
+
+#[ic_cdk::update]
+fn delete_user_profile(principal_id: String) -> Result<bool, String> {
+    ic_cdk::println!("CALL[delete_user_profile] Input: principal_id={}", principal_id);
+    let result = society_profile_types::delete_user_profile(principal_id);
+    ic_cdk::println!("CALL[delete_user_profile] Output: {:?}", result);
+    result
+}
+
+#[ic_cdk::query]
+fn get_total_user_profiles() -> u64 {
+    ic_cdk::println!("CALL[get_total_user_profiles] Input: none");
+    let result = society_profile_types::get_total_user_profiles();
+    ic_cdk::println!("CALL[get_total_user_profiles] Output: {}", result);
+    result
+}
+
+
 
