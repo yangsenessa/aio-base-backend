@@ -1,223 +1,289 @@
 # AIO Base Backend
 
-This is the backend service for the AIO platform, providing core functionality for agent management, MCP (Multi-Chain Protocol) operations, and token economy.
+An advanced blockchain-based backend service for the AIO (AI Operations) platform, providing comprehensive functionality for agent management, MCP (Multi-Chain Protocol) operations, token economy, and distributed computing infrastructure.
 
-## Features
+## License
 
-### Agent Management
-- Create, read, update, and delete agent items
-- Paginated queries for agent listings
-- User-specific agent management
-- Search and filter capabilities
+This project is licensed under the MIT License - see the [LICENSE](#license) section for details.
 
-### MCP (Multi-Chain Protocol) Management
-- CRUD operations for MCP items
-- Paginated queries for MCP listings
-- User-specific MCP management
-- Search and filter capabilities
+## Overview
 
-### Work Ledger System
-- Trace management for operations
-- Status tracking (Todo, InProgress, Completed, Cancelled)
-- Paginated queries for traces
-- Filtering and sorting capabilities
+The AIO Base Backend is built on the Internet Computer Protocol (ICP) and serves as the core infrastructure for:
 
-### Finance System
-- Token account management
-- Credit stacking and unstacking
-- Token claiming and balance management
-- Balance summaries and statistics
-- Trace-based operation tracking
+- **Agent Asset Management**: Create, manage, and deploy AI agents
+- **MCP Protocol Support**: Multi-Chain Protocol operations and management
+- **Token Economy**: Comprehensive token and credit system with staking, rewards, and governance
+- **Work Ledger System**: Distributed task tracking and execution tracing
+- **Inverted Index System**: Advanced search and discovery capabilities
+- **Mining Rewards**: Automated reward distribution system
+- **Credit Exchange**: ICP-to-Credit conversion system
 
-#### Key Finance Features:
-- **Account Management**
-  - Create and manage token accounts
-  - View account balances and information
-  - Delete accounts when needed
+## Quick Start
 
-- **Credit Operations**
-  - Stack credits for enhanced benefits
-  - Unstack credits when needed
-  - Track credit activities and history
+### Prerequisites
 
-- **Token Operations**
-  - Claim tokens based on eligibility
-  - Add token balances
-  - Transfer tokens between accounts
-  - Track token activities and history
+- Rust (latest stable version)
+- Internet Computer SDK (dfx)
+- Node.js and npm (for frontend components)
 
-- **Balance Tracking**
-  - View AIO balance
-  - Monitor staked credits
-  - Track credit balance
-  - Check unclaimed balance
+### Installation and Deployment
 
-### Token Economy
-- Token emission and distribution
-- Subscription plan management
-- Kappa multiplier system
-- Token grants and vesting
+1. **Clone the repository**
+   ```bash
+   git clone <repository-url>
+   cd project/src/aio-base-backend
+   ```
 
-#### Key Token Economy Features:
-- **Emission System**
-  - Base emission rate configuration
-  - Kappa factor adjustments
-  - Staking bonus calculations
-  - Subscription-based multipliers
+2. **Start the local development environment**
+   ```bash
+   chmod +x ../../build.sh
+   ../../build.sh
+   ```
 
-- **Subscription Plans**
-  - Free tier
-  - Basic plan
-  - Premium plan
-  - Enterprise plan
+   This script will:
+   - Stop any running dfx instances
+   - Start dfx in background with clean state
+   - Deploy the aio-base-frontend
+   - Configure recharge principal account
+   - Initialize token minting
 
-- **Token Grants**
-  - Create token grants with vesting periods
-  - Track grant status and claimed amounts
-  - Manage vesting schedules
-  - Claim vested tokens
+3. **Verify deployment**
+   ```bash
+   dfx canister status aio-base-backend
+   ```
 
-- **Activity Tracking**
-  - Token activity monitoring
-  - Credit activity tracking
-  - Operation statistics
-  - Historical data analysis
+## API Reference
 
-### User Profile Management
-- User profile creation and management
-- Multi-authentication method support
-- Profile data indexing and search
-- Privacy and security features
+### Core Data Types
 
-#### Key User Profile Features:
-- **Profile Management**
-  - Create and update user profiles
-  - Support for multiple authentication methods (Wallet, Google, Internet Identity)
-  - Flexible profile data structure with optional fields
-  - Automatic timestamp management (created_at, updated_at)
-
-- **Authentication Integration**
-  - Principal ID-based authentication
-  - User ID management
-  - Email-based profile lookup
-  - Login status tracking
-
-- **Data Indexing**
-  - Multi-index support for fast lookups
-  - Principal ID indexing for authentication
-  - User ID indexing for profile management
-  - Email indexing for contact purposes
-
-- **Privacy & Security**
-  - Optional metadata support for extensibility
-  - Secure storage with stable memory structures
-  - Audit trail maintenance
-  - Data integrity preservation
-
-## API Endpoints
-
-### Agent API
-- `get_agent_item`: Retrieve a specific agent
-- `get_all_agent_items`: List all agents
-- `get_user_agent_items`: Get user's agents
-- `add_agent_item`: Create a new agent
-- `update_agent_item`: Modify an existing agent
-
-### MCP API
-- `get_mcp_item`: Retrieve a specific MCP
-- `get_all_mcp_items`: List all MCPs
-- `get_user_mcp_items`: Get user's MCPs
-- `add_mcp_item`: Create a new MCP
-- `update_mcp_item`: Modify an existing MCP
-
-### Work Ledger API
-- `get_trace`: Retrieve a specific trace
-- `get_user_traces`: Get user's traces
-- `add_trace`: Create a new trace
-- `get_traces_with_filters`: Search traces with filters
-
-### Finance API
-- `get_account_info`: Get account details
-- `add_account`: Create a new account
-- `stack_credit`: Stack credits for benefits
-- `unstack_credit`: Remove stacked credits
-- `claim_token`: Claim available tokens
-- `add_token_balance`: Add tokens to account
-- `get_balance_summary`: Get account balance overview
-
-### Token Economy API
-- `convert_aio_to_credits`: Convert AIO tokens to credits
-- `update_exchange_ratio`: Modify exchange rates
-- `subscribe_plan`: Manage subscription plans
-- `get_kappa`: Retrieve kappa multiplier
-- `claim_reward`: Claim available rewards
-- `init_emission_policy`: Initialize emission rules
-- `calculate_emission`: Compute token emissions
-- `create_token_grant`: Create new token grants
-- `claim_vested_tokens`: Claim vested tokens
-
-### User Profile API
-- `upsert_user_profile`: Create or update user profile
-- `get_user_profile_by_principal`: Retrieve profile by principal ID
-- `get_user_profile_by_user_id`: Retrieve profile by user ID
-- `get_user_profile_by_email`: Retrieve profile by email address
-- `update_user_nickname`: Update user nickname
-- `get_user_profiles_paginated`: List all profiles with pagination
-- `delete_user_profile`: Remove user profile
-- `get_total_user_profiles`: Get total number of profiles
-
-## Data Structures
-
-### UserProfile Structure
-The UserProfile structure provides comprehensive user management capabilities:
-
-```rust
-pub struct UserProfile {
-    pub user_id: String,                    // Unique user identifier
-    pub principal_id: String,               // Internet Computer principal ID
-    pub name: Option<String>,               // Legacy compatibility field
-    pub nickname: String,                   // User display name
-    pub login_method: LoginMethod,          // Authentication method used
-    pub login_status: LoginStatus,          // Current authentication status
-    pub email: Option<String>,              // User email address (optional)
-    pub picture: Option<String>,            // Profile picture URL (optional)
-    pub wallet_address: Option<String>,     // Wallet address (optional)
-    pub created_at: u64,                    // Profile creation timestamp
-    pub updated_at: u64,                    // Last update timestamp
-    pub metadata: Option<String>,           // Additional JSON metadata
-}
+#### Agent Management
+```candid
+type AgentItem = record {
+  id: nat64;
+  name: text;
+  description: text;
+  author: text;
+  owner: text;
+  platform: opt Platform;
+  git_repo: text;
+  homepage: opt text;
+  input_params: opt text;
+  output_example: opt text;
+  image_url: opt text;
+  exec_file_url: opt text;
+  version: text;
+};
 ```
 
-### Authentication Enums
-```rust
-pub enum LoginMethod {
-    Wallet,     // Wallet-based authentication
-    Google,     // Google OAuth authentication
-    II,         // Internet Identity authentication
-}
-
-pub enum LoginStatus {
-    Authenticated,      // User is currently authenticated
-    Unauthenticated,    // User is not authenticated
-}
+#### MCP Management
+```candid
+type McpItem = record {
+  id: nat64;
+  name: text;
+  description: text;
+  author: text;
+  owner: text;
+  git_repo: text;
+  exec_file: opt text;
+  homepage: opt text;
+  remote_endpoint: opt text;
+  mcp_type: text;
+  community_body: opt text;
+  resources: bool;
+  prompts: bool;
+  tools: bool;
+  sampling: bool;
+};
 ```
 
-### Storage Architecture
-- **Main Storage**: `StableVec<UserProfile>` for profile data persistence
-- **Indexing**: Multiple `StableBTreeMap` structures for fast lookups
-- **Memory Management**: Centralized memory allocation via `stable_mem_storage.rs`
-- **Data Integrity**: Automatic index synchronization and validation
+#### Token Economy
+```candid
+type AccountInfo = record {
+  principal_id: text;
+  token_info: TokenInfo;
+  created_at: nat64;
+  updated_at: opt nat64;
+  metadata: opt text;
+};
+
+type TokenInfo = record {
+  token_balance: nat64;
+  credit_balance: nat64;
+  staked_credits: nat64;
+  kappa_multiplier: float64;
+};
+```
+
+### API Endpoints
+
+#### 1. Agent Asset Management
+
+##### Basic Operations
+- **`get_agent_item(id: nat64) -> opt AgentItem`**
+  - Retrieve specific agent by ID
+  
+- **`get_all_agent_items() -> vec AgentItem`**
+  - Get all available agents
+  
+- **`add_agent_item(agent: AgentItem, principal_id: text) -> variant { Ok: nat64; Err: text }`**
+  - Create new agent with automatic owner assignment
+  
+- **`update_agent_item(id: nat64, agent: AgentItem) -> variant { Ok; Err: text }`**
+  - Update existing agent (owner verification required)
+
+##### Advanced Queries
+- **`get_user_agent_items() -> vec AgentItem`**
+  - Get agents owned by caller
+  
+- **`get_agent_items_paginated(offset: nat64, limit: nat64) -> vec AgentItem`**
+  - Paginated agent listing
+  
+- **`get_agent_item_by_name(name: text) -> opt AgentItem`**
+  - Find agent by name
+
+#### 2. MCP (Multi-Chain Protocol) Management
+
+##### Core MCP Operations
+- **`get_mcp_item(name: text) -> opt McpItem`**
+  - Retrieve MCP by name
+  
+- **`add_mcp_item(mcp: McpItem, principal_id: text) -> variant { Ok: text; Err: text }`**
+  - Register new MCP with validation
+  
+- **`update_mcp_item(name: text, mcp: McpItem) -> variant { Ok; Err: text }`**
+  - Update MCP configuration
+  
+- **`delete_mcp_item(name: text) -> variant { Ok; Err: text }`**
+  - Remove MCP and associated indices
+
+##### MCP Staking System
+- **`stack_credit(principal_id: text, mcp_name: text, amount: nat64) -> variant { Ok: AccountInfo; Err: text }`**
+  - Stake credits to specific MCP
+  
+- **`get_mcp_stack_records_paginated(mcp_name: text, offset: nat64, limit: nat64) -> vec McpStackRecord`**
+  - Get staking records for MCP
+
+#### 3. Token Economy System
+
+##### Account Management
+- **`add_account(principal_id: text) -> variant { Ok: AccountInfo; Err: text }`**
+  - Create new token account
+  
+- **`get_account_info(principal_id: text) -> opt AccountInfo`**
+  - Retrieve account information
+  
+- **`get_balance_summary(principal_id: text) -> record { total_count: nat64; total_amount: nat64; success_count: nat64; unclaimed_balance: nat64 }`**
+  - Get comprehensive balance overview
+
+##### Credit Operations
+- **`use_credit(principal_id: text, amount: nat64, service: text, metadata: opt text) -> variant { Ok: AccountInfo; Err: text }`**
+  - Consume credits for services
+  
+- **`unstack_credit(principal_id: text, amount: nat64) -> variant { Ok: AccountInfo; Err: text }`**
+  - Unstake credits from MCPs
+
+##### Token Grants and Rewards
+- **`create_and_claim_newuser_grant(principal_id: text) -> variant { Ok: nat64; Err: text }`**
+  - Create and claim new user bonus
+  
+- **`create_and_claim_newmcp_grant(principal_id: text, mcp_name: text) -> variant { Ok: nat64; Err: text }`**
+  - Create and claim MCP developer grant
+
+#### 4. Mining Rewards System
+
+##### Reward Distribution
+- **`dispatch_mining_rewards() -> variant { Ok; Err: text }`**
+  - Start automated reward distribution (runs every 5 minutes)
+  
+- **`stop_mining_rewards() -> variant { Ok; Err: text }`**
+  - Stop automated reward distribution
+  
+- **`cal_unclaim_rewards(principal_id: text) -> nat64`**
+  - Calculate unclaimed rewards for user
+  
+- **`claim_rewards(principal_id: text) -> variant { Ok: nat64; Err: text }`**
+  - Claim accumulated mining rewards
+
+#### 5. Work Ledger & Trace System
+
+##### Trace Management
+- **`record_trace_call(trace_id: text, context_id: text, protocol: text, agent: text, call_type: text, method: text, input: IOValue, output: IOValue, status: text, error_message: opt text) -> variant { Ok: null; Err: text }`**
+  - Record execution trace for operations
+  
+- **`get_traces_paginated(offset: nat64, limit: nat64) -> vec TraceLog`**
+  - Paginated trace retrieval
+  
+- **`get_traces_with_filters(protocols: opt vec text, methods: opt vec text, statuses: opt vec text) -> vec TraceLog`**
+  - Advanced trace filtering
+  
+- **`get_traces_statistics() -> record { total_count: nat64; success_count: nat64; error_count: nat64 }`**
+  - Get trace execution statistics
+
+#### 6. AIO Protocol Index System
+
+##### Index Management
+- **`create_aio_index_from_json(name: text, json_str: text) -> variant { Ok; Err: text }`**
+  - Create protocol index from JSON specification
+  
+- **`get_aio_index(id: text) -> opt AioIndex`**
+  - Retrieve protocol index
+  
+- **`search_aio_indices_by_keyword(keyword: text) -> vec AioIndex`**
+  - Search indices by keyword
+
+#### 7. Inverted Index System
+
+##### Search & Discovery
+- **`store_inverted_index(mcp_name: text, json_str: text) -> variant { Ok; Err: text }`**
+  - Store searchable index for MCP
+  
+- **`find_inverted_index_by_keywords(keywords: vec text, min_confidence: float32) -> text`**
+  - Multi-keyword search with confidence scoring
+  
+- **`revert_Index_find_by_keywords_strategy(keywords: vec text) -> text`**
+  - Advanced keyword matching strategy
+
+#### 8. Credit Exchange System
+
+##### ICP-Credit Conversion
+- **`get_credits_per_icp_api() -> nat64`**
+  - Get current ICP to Credit exchange rate
+  
+- **`simulate_credit_from_icp_api(icp_amount: float64) -> nat64`**
+  - Simulate credit amount from ICP
+  
+- **`recharge_and_convert_credits_api(icp_amount: float64) -> nat64`**
+  - Execute ICP to Credit conversion
+  
+- **`get_recharge_history_api(principal: text, offset: nat64, limit: nat64) -> vec RechargeRecord`**
+  - Get recharge transaction history
+
+## Architecture
+
+### Core Components
+
+1. **Agent Asset Types** (`agent_asset_types.rs`): Agent lifecycle management
+2. **MCP Asset Types** (`mcp_asset_types.rs`): Multi-Chain Protocol handling
+3. **Token Economy** (`token_economy.rs`): Economic system implementation
+4. **Trace Storage** (`trace_storage.rs`): Execution tracking and audit trails
+5. **Stable Memory Storage** (`stable_mem_storage.rs`): Persistent data storage
+6. **Mining Rewards** (`mining_reword.rs`): Automated reward distribution
+
+### Data Flow
+
+```
+User Request → API Endpoint → Core Logic → Stable Storage → Response
+                     ↓
+            Trace Logging → Audit Trail
+                     ↓
+            Mining Rewards → Token Distribution
+```
 
 ## Development
 
-### Prerequisites
-- Rust (latest stable version)
-- Cargo
-- Internet Computer SDK (dfx)
-
 ### Building
 ```bash
-cargo build
+cargo build --release --target wasm32-unknown-unknown
 ```
 
 ### Testing
@@ -225,13 +291,115 @@ cargo build
 cargo test
 ```
 
-### Deployment
+### Local Development
 ```bash
-dfx deploy
+# Start local replica
+dfx start --background
+
+# Deploy backend
+dfx deploy aio-base-backend
+
+# Deploy frontend
+dfx deploy aio-base-frontend
 ```
 
-## License
-This project is licensed under the MIT License - see the LICENSE file for details.
+### Environment Configuration
 
-## Contact
-For questions and support, please open an issue in the repository.
+The system automatically configures:
+- Recharge principal account for ICP-Credit conversion
+- Token minting initialization
+- Frontend-backend integration
+
+## Configuration
+
+### Recharge Principal Setup
+The build script automatically configures a recharge principal for ICP-Credit conversion:
+```bash
+RECHARGE_PRINCIPAL_ID="jzpwm-zsjcq-ugkzp-nr7au-bydmm-c7rqk-tzp2r-gtode-fws2v-ehkfl-cqe"
+```
+
+### Token Economics
+- Base emission rate: Configurable through emission policy
+- Staking bonuses: Applied automatically for staked credits
+- New user grants: 1000 credits
+- New MCP grants: 10000 credits
+
+## Security Features
+
+- **Principal-based Authentication**: All operations verified against caller identity
+- **Owner Verification**: Asset modifications restricted to owners
+- **Trace Auditing**: Complete operation logging for transparency
+- **Stable Storage**: Crash-resistant data persistence
+- **Error Handling**: Comprehensive error reporting and recovery
+
+## Monitoring
+
+### Available Statistics
+- Total staked credits across all MCPs
+- Mining reward distribution metrics
+- User activity and trace statistics
+- Token circulation and grant status
+
+### Logging
+All API calls are logged with:
+- Input parameters
+- Execution results
+- Error details
+- Performance metrics
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes with comprehensive tests
+4. Submit a pull request with detailed description
+
+## Troubleshooting
+
+### Common Issues
+
+1. **Deployment Failures**
+   - Ensure dfx is running: `dfx ping`
+   - Check available cycles: `dfx wallet balance`
+
+2. **Permission Errors**
+   - Verify principal identity: `dfx identity whoami`
+   - Check asset ownership
+
+3. **Storage Issues**
+   - Monitor canister memory usage
+   - Consider stable storage optimization
+
+## License
+
+MIT License
+
+Copyright (c) 2024 AIO Platform
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+## Support
+
+For questions and support, please open an issue in the repository or contact the development team.
+
+---
+
+**Version**: 1.0.0  
+**Last Updated**: 2024  
+**Platform**: Internet Computer Protocol (ICP)
