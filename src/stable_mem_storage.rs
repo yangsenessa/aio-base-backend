@@ -183,4 +183,21 @@ thread_local! {
             MEMORY_MANAGER.with(|m| m.borrow().get(MemoryId::new(63)))
         )
     );
+
+    // Contact Storage
+    pub static CONTACTS: RefCell<StableVec<crate::society_profile_types::Contact, Memory>> = RefCell::new(
+        StableVec::init(
+            MEMORY_MANAGER.with(|m| m.borrow().get(MemoryId::new(70)))
+        ).unwrap()
+    );
+    pub static CONTACT_OWNER_INDEX: RefCell<StableBTreeMap<crate::society_profile_types::ContactOwnerKey, u64, Memory>> = RefCell::new(
+        StableBTreeMap::init(
+            MEMORY_MANAGER.with(|m| m.borrow().get(MemoryId::new(71)))
+        )
+    );
+    pub static CONTACT_NAME_INDEX: RefCell<StableBTreeMap<crate::society_profile_types::ContactNameKey, u64, Memory>> = RefCell::new(
+        StableBTreeMap::init(
+            MEMORY_MANAGER.with(|m| m.borrow().get(MemoryId::new(72)))
+        )
+    );
 } 

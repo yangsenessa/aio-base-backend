@@ -362,6 +362,39 @@ type UserProfile = record {
   email: opt text;
   picture: opt text;
   wallet_address: opt text;
+  devices: vec text;
+  created_at: nat64;
+  updated_at: nat64;
+  metadata: opt text;
+};
+
+// ==== Contact Types ====
+
+type ContactType = variant {
+  Friend;
+  System;
+  Business;
+  Family;
+};
+
+type ContactStatus = variant {
+  Active;
+  Pending;
+  Blocked;
+  Deleted;
+};
+
+type Contact = record {
+  id: nat64;
+  owner_principal_id: text;
+  contact_principal_id: text;
+  name: text;
+  nickname: opt text;
+  contact_type: ContactType;
+  status: ContactStatus;
+  avatar: opt text;
+  devices: vec text;
+  is_online: bool;
   created_at: nat64;
   updated_at: nat64;
   metadata: opt text;
@@ -538,4 +571,24 @@ service : {
   "get_user_profiles_paginated": (nat64, nat64) -> (vec UserProfile) query;
   "delete_user_profile": (text) -> (variant { Ok: bool; Err: text });
   "get_total_user_profiles": () -> (nat64) query;
+
+  // Contact API
+  "upsert_contact": (Contact) -> (variant { Ok: nat64; Err: text });
+  "get_contacts_by_owner": (text) -> (vec Contact) query;
+  "get_contacts_by_owner_paginated": (text, nat64, nat64) -> (vec Contact) query;
+  "get_contact_by_id": (nat64) -> (opt Contact) query;
+  "get_contact_by_principal_ids": (text, text) -> (opt Contact) query;
+  "search_contacts_by_name": (text, text) -> (vec Contact) query;
+  "update_contact_status": (text, text, ContactStatus) -> (variant { Ok: Contact; Err: text });
+  "update_contact_nickname": (text, text, text) -> (variant { Ok: Contact; Err: text });
+  "update_contact_devices": (text, text, vec text) -> (variant { Ok: Contact; Err: text });
+  "update_contact_online_status": (text, text, bool) -> (variant { Ok: Contact; Err: text });
+  "delete_contact": (text, text) -> (variant { Ok: bool; Err: text });
+  "get_total_contacts_by_owner": (text) -> (nat64) query;
+  "create_contact_from_principal_id": (text, text, opt text) -> (variant { Ok: nat64; Err: text });
+
+  // User Device Management API
+  "add_user_device": (text, text) -> (variant { Ok: UserProfile; Err: text });
+  "remove_user_device": (text, text) -> (variant { Ok: UserProfile; Err: text });
+  "update_user_devices": (text, vec text) -> (variant { Ok: UserProfile; Err: text });
 }

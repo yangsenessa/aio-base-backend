@@ -1282,5 +1282,139 @@ fn get_total_user_profiles() -> u64 {
     result
 }
 
+// ==== Contact API ====
+
+use society_profile_types::{Contact, ContactType, ContactStatus};
+
+#[ic_cdk::update]
+fn upsert_contact(contact: Contact) -> Result<u64, String> {
+    ic_cdk::println!("CALL[upsert_contact] Input: contact={:?}", contact);
+    let result = society_profile_types::upsert_contact(contact);
+    ic_cdk::println!("CALL[upsert_contact] Output: {:?}", result);
+    result
+}
+
+#[ic_cdk::query]
+fn get_contacts_by_owner(owner_principal_id: String) -> Vec<Contact> {
+    ic_cdk::println!("CALL[get_contacts_by_owner] Input: owner_principal_id={}", owner_principal_id);
+    let result = society_profile_types::get_contacts_by_owner(owner_principal_id);
+    ic_cdk::println!("CALL[get_contacts_by_owner] Output: count={}", result.len());
+    result
+}
+
+#[ic_cdk::query]
+fn get_contacts_by_owner_paginated(owner_principal_id: String, offset: u64, limit: u64) -> Vec<Contact> {
+    ic_cdk::println!("CALL[get_contacts_by_owner_paginated] Input: owner_principal_id={}, offset={}, limit={}", owner_principal_id, offset, limit);
+    let result = society_profile_types::get_contacts_by_owner_paginated(owner_principal_id, offset, limit as usize);
+    ic_cdk::println!("CALL[get_contacts_by_owner_paginated] Output: count={}", result.len());
+    result
+}
+
+#[ic_cdk::query]
+fn get_contact_by_id(contact_id: u64) -> Option<Contact> {
+    ic_cdk::println!("CALL[get_contact_by_id] Input: contact_id={}", contact_id);
+    let result = society_profile_types::get_contact_by_id(contact_id);
+    ic_cdk::println!("CALL[get_contact_by_id] Output: exists={}", result.is_some());
+    result
+}
+
+#[ic_cdk::query]
+fn get_contact_by_principal_ids(owner_principal_id: String, contact_principal_id: String) -> Option<Contact> {
+    ic_cdk::println!("CALL[get_contact_by_principal_ids] Input: owner_principal_id={}, contact_principal_id={}", owner_principal_id, contact_principal_id);
+    let result = society_profile_types::get_contact_by_principal_ids(owner_principal_id, contact_principal_id);
+    ic_cdk::println!("CALL[get_contact_by_principal_ids] Output: exists={}", result.is_some());
+    result
+}
+
+#[ic_cdk::query]
+fn search_contacts_by_name(owner_principal_id: String, name_query: String) -> Vec<Contact> {
+    ic_cdk::println!("CALL[search_contacts_by_name] Input: owner_principal_id={}, name_query={}", owner_principal_id, name_query);
+    let result = society_profile_types::search_contacts_by_name(owner_principal_id, name_query);
+    ic_cdk::println!("CALL[search_contacts_by_name] Output: count={}", result.len());
+    result
+}
+
+#[ic_cdk::update]
+fn update_contact_status(owner_principal_id: String, contact_principal_id: String, new_status: ContactStatus) -> Result<Contact, String> {
+    ic_cdk::println!("CALL[update_contact_status] Input: owner_principal_id={}, contact_principal_id={}, new_status={:?}", owner_principal_id, contact_principal_id, new_status);
+    let result = society_profile_types::update_contact_status(owner_principal_id, contact_principal_id, new_status);
+    ic_cdk::println!("CALL[update_contact_status] Output: {:?}", result);
+    result
+}
+
+#[ic_cdk::update]
+fn update_contact_nickname(owner_principal_id: String, contact_principal_id: String, nickname: String) -> Result<Contact, String> {
+    ic_cdk::println!("CALL[update_contact_nickname] Input: owner_principal_id={}, contact_principal_id={}, nickname={}", owner_principal_id, contact_principal_id, nickname);
+    let result = society_profile_types::update_contact_nickname(owner_principal_id, contact_principal_id, nickname);
+    ic_cdk::println!("CALL[update_contact_nickname] Output: {:?}", result);
+    result
+}
+
+#[ic_cdk::update]
+fn update_contact_devices(owner_principal_id: String, contact_principal_id: String, devices: Vec<String>) -> Result<Contact, String> {
+    ic_cdk::println!("CALL[update_contact_devices] Input: owner_principal_id={}, contact_principal_id={}, devices={:?}", owner_principal_id, contact_principal_id, devices);
+    let result = society_profile_types::update_contact_devices(owner_principal_id, contact_principal_id, devices);
+    ic_cdk::println!("CALL[update_contact_devices] Output: {:?}", result);
+    result
+}
+
+#[ic_cdk::update]
+fn update_contact_online_status(owner_principal_id: String, contact_principal_id: String, is_online: bool) -> Result<Contact, String> {
+    ic_cdk::println!("CALL[update_contact_online_status] Input: owner_principal_id={}, contact_principal_id={}, is_online={}", owner_principal_id, contact_principal_id, is_online);
+    let result = society_profile_types::update_contact_online_status(owner_principal_id, contact_principal_id, is_online);
+    ic_cdk::println!("CALL[update_contact_online_status] Output: {:?}", result);
+    result
+}
+
+#[ic_cdk::update]
+fn delete_contact(owner_principal_id: String, contact_principal_id: String) -> Result<bool, String> {
+    ic_cdk::println!("CALL[delete_contact] Input: owner_principal_id={}, contact_principal_id={}", owner_principal_id, contact_principal_id);
+    let result = society_profile_types::delete_contact(owner_principal_id, contact_principal_id);
+    ic_cdk::println!("CALL[delete_contact] Output: {:?}", result);
+    result
+}
+
+#[ic_cdk::query]
+fn get_total_contacts_by_owner(owner_principal_id: String) -> u64 {
+    ic_cdk::println!("CALL[get_total_contacts_by_owner] Input: owner_principal_id={}", owner_principal_id);
+    let result = society_profile_types::get_total_contacts_by_owner(owner_principal_id);
+    ic_cdk::println!("CALL[get_total_contacts_by_owner] Output: {}", result);
+    result
+}
+
+#[ic_cdk::update]
+fn create_contact_from_principal_id(owner_principal_id: String, contact_principal_id: String, nickname: Option<String>) -> Result<u64, String> {
+    ic_cdk::println!("CALL[create_contact_from_principal_id] Input: owner_principal_id={}, contact_principal_id={}, nickname={:?}", owner_principal_id, contact_principal_id, nickname);
+    let result = society_profile_types::create_contact_from_principal_id(owner_principal_id, contact_principal_id, nickname);
+    ic_cdk::println!("CALL[create_contact_from_principal_id] Output: {:?}", result);
+    result
+}
+
+// ==== User Device Management API ====
+
+#[ic_cdk::update]
+fn add_user_device(principal_id: String, device_id: String) -> Result<UserProfile, String> {
+    ic_cdk::println!("CALL[add_user_device] Input: principal_id={}, device_id={}", principal_id, device_id);
+    let result = society_profile_types::add_user_device(principal_id, device_id);
+    ic_cdk::println!("CALL[add_user_device] Output: {:?}", result);
+    result
+}
+
+#[ic_cdk::update]
+fn remove_user_device(principal_id: String, device_id: String) -> Result<UserProfile, String> {
+    ic_cdk::println!("CALL[remove_user_device] Input: principal_id={}, device_id={}", principal_id, device_id);
+    let result = society_profile_types::remove_user_device(principal_id, device_id);
+    ic_cdk::println!("CALL[remove_user_device] Output: {:?}", result);
+    result
+}
+
+#[ic_cdk::update]
+fn update_user_devices(principal_id: String, devices: Vec<String>) -> Result<UserProfile, String> {
+    ic_cdk::println!("CALL[update_user_devices] Input: principal_id={}, devices={:?}", principal_id, devices);
+    let result = society_profile_types::update_user_devices(principal_id, devices);
+    ic_cdk::println!("CALL[update_user_devices] Output: {:?}", result);
+    result
+}
+
 
 

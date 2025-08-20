@@ -17,6 +17,7 @@ pub struct UserProfile {
     pub email: Option<String>,
     pub picture: Option<String>,
     pub wallet_address: Option<String>,
+    pub devices: Vec<String>,           // User's device list
     pub created_at: u64,
     pub updated_at: u64,
     pub metadata: Option<String>,       // Additional metadata as JSON
@@ -117,30 +118,38 @@ pub fn upsert_user_profile(profile: UserProfile) -> Result<u64, String> {
         updated_profile.created_at = current_time;
     }
     
-    USER_PROFILES.with(|profiles| {
+    // First check if profile already exists by principal ID
+    let existing_index = PRINCIPAL_INDEX.with(|idx| {
+        let idx = idx.borrow();
+        idx.get(&PrincipalKey { principal_id: updated_profile.principal_id.clone() }).map(|idx| idx)
+    });
+    
+    let result = USER_PROFILES.with(|profiles| -> Result<u64, String> {
         let mut profiles = profiles.borrow_mut();
         
-        // Check if profile already exists by principal ID
-        if let Some(existing_index) = PRINCIPAL_INDEX.with(|idx| idx.borrow().get(&PrincipalKey { principal_id: updated_profile.principal_id.clone() })) {
+        if let Some(existing_index) = existing_index {
             // Update existing profile
             profiles.set(existing_index, &updated_profile);
-            
-            // Update indices
-            update_indices(&updated_profile, existing_index)?;
-            
             Ok(existing_index)
         } else {
             // Add new profile
             let index = profiles.len();
             profiles.push(&updated_profile)
                 .map_err(|e| format!("Failed to store profile: {:?}", e))?;
-            
-            // Create indices
-            create_indices(&updated_profile, index)?;
-            
             Ok(index)
         }
-    })
+    })?;
+    
+    // Update or create indices outside of the USER_PROFILES.with block
+    if let Some(existing_index) = existing_index {
+        // Update existing profile indices
+        update_indices(&updated_profile, existing_index)?;
+    } else {
+        // Create new profile indices
+        create_indices(&updated_profile, result)?;
+    }
+    
+    Ok(result)
 }
 
 /// Get a user profile by principal ID
@@ -193,12 +202,99 @@ pub fn get_user_profile(index: u64) -> Option<UserProfile> {
 
 /// Update user nickname
 pub fn update_user_nickname(principal_id: String, nickname: String) -> Result<UserProfile, String> {
-    if let Some(mut profile) = get_user_profile_by_principal(principal_id.clone()) {
-        profile.nickname = nickname;
-        profile.updated_at = ic_cdk::api::time();
-        
-        let index = upsert_user_profile(profile.clone())?;
-        Ok(profile)
+    // First get the profile index to avoid borrowing conflicts
+    let profile_index = PRINCIPAL_INDEX.with(|index| {
+        let index = index.borrow();
+        index.get(&PrincipalKey { principal_id: principal_id.clone() }).map(|idx| idx)
+    });
+    
+    if let Some(index) = profile_index {
+        // Get profile by index instead of by principal to avoid borrowing conflicts
+        if let Some(mut profile) = get_user_profile(index) {
+            profile.nickname = nickname;
+            profile.updated_at = ic_cdk::api::time();
+            
+            let _ = upsert_user_profile(profile.clone())?;
+            Ok(profile)
+        } else {
+            Err("User profile not found".to_string())
+        }
+    } else {
+        Err("User profile not found".to_string())
+    }
+}
+
+/// Add device to user profile
+pub fn add_user_device(principal_id: String, device_id: String) -> Result<UserProfile, String> {
+    // First get the profile index to avoid borrowing conflicts
+    let profile_index = PRINCIPAL_INDEX.with(|index| {
+        let index = index.borrow();
+        index.get(&PrincipalKey { principal_id: principal_id.clone() }).map(|idx| idx)
+    });
+    
+    if let Some(index) = profile_index {
+        // Get profile by index instead of by principal to avoid borrowing conflicts
+        if let Some(mut profile) = get_user_profile(index) {
+            if !profile.devices.contains(&device_id) {
+                profile.devices.push(device_id);
+                profile.updated_at = ic_cdk::api::time();
+                
+                let _ = upsert_user_profile(profile.clone())?;
+                Ok(profile)
+            } else {
+                Ok(profile) // Device already exists
+            }
+        } else {
+            Err("User profile not found".to_string())
+        }
+    } else {
+        Err("User profile not found".to_string())
+    }
+}
+
+/// Remove device from user profile
+pub fn remove_user_device(principal_id: String, device_id: String) -> Result<UserProfile, String> {
+    // First get the profile index to avoid borrowing conflicts
+    let profile_index = PRINCIPAL_INDEX.with(|index| {
+        let index = index.borrow();
+        index.get(&PrincipalKey { principal_id: principal_id.clone() }).map(|idx| idx)
+    });
+    
+    if let Some(index) = profile_index {
+        // Get profile by index instead of by principal to avoid borrowing conflicts
+        if let Some(mut profile) = get_user_profile(index) {
+            profile.devices.retain(|d| d != &device_id);
+            profile.updated_at = ic_cdk::api::time();
+            
+            let _ = upsert_user_profile(profile.clone())?;
+            Ok(profile)
+        } else {
+            Err("User profile not found".to_string())
+        }
+    } else {
+        Err("User profile not found".to_string())
+    }
+}
+
+/// Update user devices list
+pub fn update_user_devices(principal_id: String, devices: Vec<String>) -> Result<UserProfile, String> {
+    // First get the profile index to avoid borrowing conflicts
+    let profile_index = PRINCIPAL_INDEX.with(|index| {
+        let index = index.borrow();
+        index.get(&PrincipalKey { principal_id: principal_id.clone() }).map(|idx| idx)
+    });
+    
+    if let Some(index) = profile_index {
+        // Get profile by index instead of by principal to avoid borrowing conflicts
+        if let Some(mut profile) = get_user_profile(index) {
+            profile.devices = devices;
+            profile.updated_at = ic_cdk::api::time();
+            
+            let _ = upsert_user_profile(profile.clone())?;
+            Ok(profile)
+        } else {
+            Err("User profile not found".to_string())
+        }
     } else {
         Err("User profile not found".to_string())
     }
@@ -283,27 +379,540 @@ fn update_indices(profile: &UserProfile, index: u64) -> Result<(), String> {
 }
 
 fn remove_indices(principal_id: String) -> Result<(), String> {
-    if let Some(profile) = get_user_profile_by_principal(principal_id.clone()) {
-        // Remove from principal index
-        PRINCIPAL_INDEX.with(|idx| {
-            let mut idx = idx.borrow_mut();
-            idx.remove(&PrincipalKey { principal_id: principal_id.clone() });
-        });
-        
-        // Remove from user ID index
-        USER_ID_INDEX.with(|idx| {
-            let mut idx = idx.borrow_mut();
-            idx.remove(&UserIdKey { user_id: profile.user_id });
-        });
-        
-        // Remove from email index if email exists
-        if let Some(ref email) = profile.email {
-            EMAIL_INDEX.with(|idx| {
+    // First get the profile index to avoid borrowing conflicts
+    let profile_index = PRINCIPAL_INDEX.with(|index| {
+        let index = index.borrow();
+        index.get(&PrincipalKey { principal_id: principal_id.clone() }).map(|idx| idx)
+    });
+    
+    if let Some(index) = profile_index {
+        // Get profile by index instead of by principal to avoid borrowing conflicts
+        if let Some(profile) = get_user_profile(index) {
+            // Remove from principal index
+            PRINCIPAL_INDEX.with(|idx| {
                 let mut idx = idx.borrow_mut();
-                idx.remove(&EmailKey { email: email.clone() });
+                idx.remove(&PrincipalKey { principal_id: principal_id.clone() });
             });
+            
+            // Remove from user ID index
+            USER_ID_INDEX.with(|idx| {
+                let mut idx = idx.borrow_mut();
+                idx.remove(&UserIdKey { user_id: profile.user_id });
+            });
+            
+            // Remove from email index if email exists
+            if let Some(ref email) = profile.email {
+                EMAIL_INDEX.with(|idx| {
+                    let mut idx = idx.borrow_mut();
+                    idx.remove(&EmailKey { email: email.clone() });
+                });
+            }
         }
     }
     
     Ok(())
 }
+
+// ==== Contact Management ====
+
+#[derive(CandidType, Serialize, Deserialize, Clone, Debug)]
+pub struct Contact {
+    pub id: u64,
+    pub owner_principal_id: String,        // Contact owner
+    pub contact_principal_id: String,     // Contact's principal ID
+    pub name: String,                     // Contact name
+    pub nickname: Option<String>,         // Nickname
+    pub contact_type: ContactType,        // Contact type
+    pub status: ContactStatus,            // Contact status
+    pub avatar: Option<String>,           // Avatar
+    pub devices: Vec<String>,             // Associated devices
+    pub is_online: bool,                  // Online status
+    pub created_at: u64,                  // Creation time
+    pub updated_at: u64,                  // Update time
+    pub metadata: Option<String>,         // Additional metadata (JSON format)
+}
+
+#[derive(CandidType, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub enum ContactType {
+    Friend,     // Friend
+    System,     // System
+    Business,   // Business
+    Family,     // Family
+}
+
+#[derive(CandidType, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub enum ContactStatus {
+    Active,     // Active
+    Pending,    // Pending
+    Blocked,    // Blocked
+    Deleted,    // Deleted
+}
+
+// Contact lookup keys
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ContactOwnerKey {
+    pub owner_principal_id: String,
+    pub contact_principal_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ContactNameKey {
+    pub owner_principal_id: String,
+    pub name: String,
+}
+
+// Implement Storable trait
+impl ic_stable_structures::Storable for Contact {
+    fn to_bytes(&self) -> std::borrow::Cow<[u8]> {
+        Cow::Owned(Encode!(self).unwrap())
+    }
+
+    fn from_bytes(bytes: std::borrow::Cow<[u8]>) -> Self {
+        Decode!(bytes.as_ref(), Self).unwrap()
+    }
+
+    const BOUND: Bound = Bound::Bounded { max_size: 2 * 1024 * 1024, is_fixed_size: false }; // 2MB for contacts
+}
+
+impl ic_stable_structures::Storable for ContactOwnerKey {
+    fn to_bytes(&self) -> std::borrow::Cow<[u8]> {
+        Cow::Owned(Encode!(&self.owner_principal_id, &self.contact_principal_id).unwrap())
+    }
+
+    fn from_bytes(bytes: std::borrow::Cow<[u8]>) -> Self {
+        let (owner_principal_id, contact_principal_id) = Decode!(bytes.as_ref(), String, String).unwrap();
+        Self { owner_principal_id, contact_principal_id }
+    }
+
+    const BOUND: Bound = Bound::Bounded { max_size: 2048, is_fixed_size: false };
+}
+
+impl ic_stable_structures::Storable for ContactNameKey {
+    fn to_bytes(&self) -> std::borrow::Cow<[u8]> {
+        Cow::Owned(Encode!(&self.owner_principal_id, &self.name).unwrap())
+    }
+
+    fn from_bytes(bytes: std::borrow::Cow<[u8]>) -> Self {
+        let (owner_principal_id, name) = Decode!(bytes.as_ref(), String, String).unwrap();
+        Self { owner_principal_id, name }
+    }
+
+    const BOUND: Bound = Bound::Bounded { max_size: 2048, is_fixed_size: false };
+}
+
+// Contact management functions
+/// Add or update contact
+pub fn upsert_contact(contact: Contact) -> Result<u64, String> {
+    let current_time = ic_cdk::api::time();
+    let mut updated_contact = contact;
+    updated_contact.updated_at = current_time;
+    
+    // Set creation time (if it's a new contact)
+    if updated_contact.created_at == 0 {
+        updated_contact.created_at = current_time;
+    }
+    
+    // Get devices from user profile if not provided
+    if updated_contact.devices.is_empty() {
+        // First get the profile index to avoid borrowing conflicts
+        let profile_index = PRINCIPAL_INDEX.with(|index| {
+            let index = index.borrow();
+            index.get(&PrincipalKey { principal_id: updated_contact.contact_principal_id.clone() }).map(|idx| idx)
+        });
+        
+        if let Some(index) = profile_index {
+            // Get profile by index instead of by principal to avoid borrowing conflicts
+            if let Some(user_profile) = get_user_profile(index) {
+                updated_contact.devices = user_profile.devices.clone();
+            }
+        }
+    }
+    
+    // Use contact storage from stable_mem_storage
+    crate::stable_mem_storage::CONTACTS.with(|contacts| {
+        let mut contacts = contacts.borrow_mut();
+        
+        // Check if contact already exists
+        if let Some(existing_index) = crate::stable_mem_storage::CONTACT_OWNER_INDEX.with(|idx| {
+            idx.borrow().get(&ContactOwnerKey { 
+                owner_principal_id: updated_contact.owner_principal_id.clone(),
+                contact_principal_id: updated_contact.contact_principal_id.clone()
+            })
+        }) {
+            // Update existing contact
+            contacts.set(existing_index, &updated_contact);
+            
+            // Update indices
+            update_contact_indices(&updated_contact, existing_index)?;
+            
+            Ok(existing_index)
+        } else {
+            // Add new contact
+            let index = contacts.len();
+            contacts.push(&updated_contact)
+                .map_err(|e| format!("Failed to store contact: {:?}", e))?;
+            
+            // Create indices
+            create_contact_indices(&updated_contact, index)?;
+            
+            Ok(index)
+        }
+    })
+}
+
+/// Create contact from principal ID (for adding friends)
+pub fn create_contact_from_principal_id(
+    owner_principal_id: String, 
+    contact_principal_id: String,
+    nickname: Option<String>
+) -> Result<u64, String> {
+    // First get the profile index to avoid borrowing conflicts
+    let profile_index = PRINCIPAL_INDEX.with(|index| {
+        let index = index.borrow();
+        index.get(&PrincipalKey { principal_id: contact_principal_id.clone() }).map(|idx| idx)
+    });
+    
+    if let Some(index) = profile_index {
+        // Get profile by index instead of by principal to avoid borrowing conflicts
+        if let Some(user_profile) = get_user_profile(index) {
+            let contact = Contact {
+                id: 0, // Will be set by storage
+                owner_principal_id,
+                contact_principal_id,
+                name: user_profile.name.unwrap_or_else(|| "Unknown User".to_string()),
+                nickname,
+                contact_type: ContactType::Friend,
+                status: ContactStatus::Active,
+                avatar: user_profile.picture,
+                devices: user_profile.devices,
+                is_online: false,
+                created_at: 0,
+                updated_at: 0,
+                metadata: None,
+            };
+            
+            upsert_contact(contact)
+        } else {
+            Err("User profile not found for the given principal ID".to_string())
+        }
+    } else {
+        Err("User profile not found for the given principal ID".to_string())
+    }
+}
+
+/// Get all contacts by owner principal ID
+pub fn get_contacts_by_owner(owner_principal_id: String) -> Vec<Contact> {
+    let mut contacts = Vec::new();
+    
+    crate::stable_mem_storage::CONTACTS.with(|contacts_store| {
+        let contacts_store = contacts_store.borrow();
+        
+        for i in 0..contacts_store.len() {
+            if let Some(contact) = contacts_store.get(i) {
+                if contact.owner_principal_id == owner_principal_id {
+                    contacts.push(contact);
+                }
+            }
+        }
+    });
+    
+    contacts
+}
+
+/// Get contacts by owner principal ID with pagination
+pub fn get_contacts_by_owner_paginated(owner_principal_id: String, offset: u64, limit: usize) -> Vec<Contact> {
+    let all_contacts = get_contacts_by_owner(owner_principal_id);
+    let total_contacts = all_contacts.len();
+    
+    if offset >= total_contacts as u64 {
+        return Vec::new();
+    }
+    
+    let end = std::cmp::min(offset + limit as u64, total_contacts as u64);
+    all_contacts.into_iter().skip(offset as usize).take((end - offset) as usize).collect()
+}
+
+/// Get contact by contact ID
+pub fn get_contact_by_id(contact_id: u64) -> Option<Contact> {
+    crate::stable_mem_storage::CONTACTS.with(|contacts| {
+        let contacts = contacts.borrow();
+        if contact_id < contacts.len() {
+            contacts.get(contact_id)
+        } else {
+            None
+        }
+    })
+}
+
+/// Get contact by owner principal ID and contact principal ID
+pub fn get_contact_by_principal_ids(owner_principal_id: String, contact_principal_id: String) -> Option<Contact> {
+    if let Some(contact_index) = crate::stable_mem_storage::CONTACT_OWNER_INDEX.with(|idx| {
+        idx.borrow().get(&ContactOwnerKey { 
+            owner_principal_id: owner_principal_id.clone(),
+            contact_principal_id: contact_principal_id.clone()
+        })
+    }) {
+        get_contact_by_id(contact_index)
+    } else {
+        None
+    }
+}
+
+/// Search contacts by name
+pub fn search_contacts_by_name(owner_principal_id: String, name_query: String) -> Vec<Contact> {
+    let mut contacts = Vec::new();
+    
+    crate::stable_mem_storage::CONTACTS.with(|contacts_store| {
+        let contacts_store = contacts_store.borrow();
+        
+        for i in 0..contacts_store.len() {
+            if let Some(contact) = contacts_store.get(i) {
+                if contact.owner_principal_id == owner_principal_id && 
+                   (contact.name.to_lowercase().contains(&name_query.to_lowercase()) ||
+                    contact.nickname.as_ref().map_or(false, |n| n.to_lowercase().contains(&name_query.to_lowercase()))) {
+                    contacts.push(contact);
+                }
+            }
+        }
+    });
+    
+    contacts
+}
+
+/// Update contact status
+pub fn update_contact_status(owner_principal_id: String, contact_principal_id: String, new_status: ContactStatus) -> Result<Contact, String> {
+    if let Some(mut contact) = get_contact_by_principal_ids(owner_principal_id.clone(), contact_principal_id.clone()) {
+        contact.status = new_status;
+        contact.updated_at = ic_cdk::api::time();
+        
+        let index = upsert_contact(contact.clone())?;
+        Ok(contact)
+    } else {
+        Err("Contact not found".to_string())
+    }
+}
+
+/// Update contact nickname
+pub fn update_contact_nickname(owner_principal_id: String, contact_principal_id: String, nickname: String) -> Result<Contact, String> {
+    if let Some(mut contact) = get_contact_by_principal_ids(owner_principal_id.clone(), contact_principal_id.clone()) {
+        contact.nickname = Some(nickname);
+        contact.updated_at = ic_cdk::api::time();
+        
+        let index = upsert_contact(contact.clone())?;
+        Ok(contact)
+    } else {
+        Err("Contact not found".to_string())
+    }
+}
+
+/// Update contact devices list
+pub fn update_contact_devices(owner_principal_id: String, contact_principal_id: String, devices: Vec<String>) -> Result<Contact, String> {
+    if let Some(mut contact) = get_contact_by_principal_ids(owner_principal_id.clone(), contact_principal_id.clone()) {
+        contact.devices = devices;
+        contact.updated_at = ic_cdk::api::time();
+        
+        let index = upsert_contact(contact.clone())?;
+        Ok(contact)
+    } else {
+        Err("Contact not found".to_string())
+    }
+}
+
+/// Update contact online status
+pub fn update_contact_online_status(owner_principal_id: String, contact_principal_id: String, is_online: bool) -> Result<Contact, String> {
+    if let Some(mut contact) = get_contact_by_principal_ids(owner_principal_id.clone(), contact_principal_id.clone()) {
+        contact.is_online = is_online;
+        contact.updated_at = ic_cdk::api::time();
+        
+        let index = upsert_contact(contact.clone())?;
+        Ok(contact)
+    } else {
+        Err("Contact not found".to_string())
+    }
+}
+
+/// Delete contact
+pub fn delete_contact(owner_principal_id: String, contact_principal_id: String) -> Result<bool, String> {
+    if let Some(contact_index) = crate::stable_mem_storage::CONTACT_OWNER_INDEX.with(|idx| {
+        idx.borrow().get(&ContactOwnerKey { 
+            owner_principal_id: owner_principal_id.clone(),
+            contact_principal_id: contact_principal_id.clone()
+        })
+    }) {
+        // Remove indices
+        remove_contact_indices(owner_principal_id.clone(), contact_principal_id.clone())?;
+        
+        // Note: We don't actually delete from main storage to maintain referential integrity
+        // Instead, we mark it as deleted or keep it for audit purposes
+        
+        Ok(true)
+    } else {
+        Ok(false)
+    }
+}
+
+/// Get total number of contacts by owner
+pub fn get_total_contacts_by_owner(owner_principal_id: String) -> u64 {
+    get_contacts_by_owner(owner_principal_id).len() as u64
+}
+
+// Contact index management helper functions
+fn create_contact_indices(contact: &Contact, index: u64) -> Result<(), String> {
+    // Create owner-contact index
+    crate::stable_mem_storage::CONTACT_OWNER_INDEX.with(|idx| {
+        let mut idx = idx.borrow_mut();
+        idx.insert(ContactOwnerKey { 
+            owner_principal_id: contact.owner_principal_id.clone(),
+            contact_principal_id: contact.contact_principal_id.clone()
+        }, index);
+    });
+    
+    // Create name index
+    crate::stable_mem_storage::CONTACT_NAME_INDEX.with(|idx| {
+        let mut idx = idx.borrow_mut();
+        idx.insert(ContactNameKey { 
+            owner_principal_id: contact.owner_principal_id.clone(),
+            name: contact.name.clone()
+        }, index);
+    });
+    
+    Ok(())
+}
+
+fn update_contact_indices(contact: &Contact, index: u64) -> Result<(), String> {
+    // Remove old indices first
+    remove_contact_indices(contact.owner_principal_id.clone(), contact.contact_principal_id.clone())?;
+    
+    // Create new indices
+    create_contact_indices(contact, index)
+}
+
+fn remove_contact_indices(owner_principal_id: String, contact_principal_id: String) -> Result<(), String> {
+    if let Some(contact) = get_contact_by_principal_ids(owner_principal_id.clone(), contact_principal_id.clone()) {
+        // Remove from owner-contact index
+        crate::stable_mem_storage::CONTACT_OWNER_INDEX.with(|idx| {
+            let mut idx = idx.borrow_mut();
+            idx.remove(&ContactOwnerKey { 
+                owner_principal_id: owner_principal_id.clone(),
+                contact_principal_id: contact_principal_id.clone()
+            });
+        });
+        
+        // Remove from name index
+        crate::stable_mem_storage::CONTACT_NAME_INDEX.with(|idx| {
+            let mut idx = idx.borrow_mut();
+            idx.remove(&ContactNameKey { 
+                owner_principal_id: owner_principal_id.clone(),
+                name: contact.name
+            });
+        });
+    }
+    
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ic_cdk::api::time;
+
+    #[test]
+    fn test_user_profile_creation() {
+        let profile = UserProfile {
+            user_id: "user123".to_string(),
+            principal_id: "principal456".to_string(),
+            name: Some("Test User".to_string()),
+            nickname: "Test".to_string(),
+            login_method: LoginMethod::Wallet,
+            login_status: LoginStatus::Authenticated,
+            email: Some("test@example.com".to_string()),
+            picture: Some("avatar.jpg".to_string()),
+            wallet_address: Some("0x123...".to_string()),
+            devices: vec!["Device1".to_string(), "Device2".to_string()],
+            created_at: time(),
+            updated_at: time(),
+            metadata: Some("Test metadata".to_string()),
+        };
+
+        assert_eq!(profile.user_id, "user123");
+        assert_eq!(profile.principal_id, "principal456");
+        assert_eq!(profile.name, Some("Test User".to_string()));
+        assert_eq!(profile.devices.len(), 2);
+        assert_eq!(profile.devices[0], "Device1");
+        assert_eq!(profile.devices[1], "Device2");
+    }
+
+    #[test]
+    fn test_contact_creation() {
+        let contact = Contact {
+            id: 0,
+            owner_principal_id: "owner123".to_string(),
+            contact_principal_id: "contact456".to_string(),
+            name: "Test Contact".to_string(),
+            nickname: Some("Test".to_string()),
+            contact_type: ContactType::Friend,
+            status: ContactStatus::Active,
+            avatar: Some("AV".to_string()),
+            devices: vec!["Device1".to_string(), "Device2".to_string()],
+            is_online: true,
+            created_at: 0,
+            updated_at: 0,
+            metadata: Some("Test metadata".to_string()),
+        };
+
+        assert_eq!(contact.owner_principal_id, "owner123");
+        assert_eq!(contact.contact_principal_id, "contact456");
+        assert_eq!(contact.name, "Test Contact");
+        assert_eq!(contact.contact_type, ContactType::Friend);
+        assert_eq!(contact.status, ContactStatus::Active);
+        assert_eq!(contact.devices.len(), 2);
+        assert!(contact.is_online);
+    }
+
+    #[test]
+    fn test_contact_type_variants() {
+        let friend = ContactType::Friend;
+        let system = ContactType::System;
+        let business = ContactType::Business;
+        let family = ContactType::Family;
+
+        assert_ne!(friend, system);
+        assert_ne!(business, family);
+        assert_eq!(friend, ContactType::Friend);
+    }
+
+    #[test]
+    fn test_contact_status_variants() {
+        let active = ContactStatus::Active;
+        let pending = ContactStatus::Pending;
+        let blocked = ContactStatus::Blocked;
+        let deleted = ContactStatus::Deleted;
+
+        assert_ne!(active, pending);
+        assert_ne!(blocked, deleted);
+        assert_eq!(active, ContactStatus::Active);
+    }
+
+    #[test]
+    fn test_contact_owner_key() {
+        let key = ContactOwnerKey {
+            owner_principal_id: "owner123".to_string(),
+            contact_principal_id: "contact456".to_string(),
+        };
+
+        assert_eq!(key.owner_principal_id, "owner123");
+        assert_eq!(key.contact_principal_id, "contact456");
+    }
+
+    #[test]
+    fn test_contact_name_key() {
+        let key = ContactNameKey {
+            owner_principal_id: "owner123".to_string(),
+            name: "Test Contact".to_string(),
+        };
+
+        assert_eq!(key.owner_principal_id, "owner123");
+        assert_eq!(key.name, "Test Contact");
+    }
+}
+
