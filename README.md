@@ -17,6 +17,7 @@ The AIO Base Backend is built on the Internet Computer Protocol (ICP) and serves
 - **Inverted Index System**: Advanced search and discovery capabilities
 - **Mining Rewards**: Automated reward distribution system
 - **Credit Exchange**: ICP-to-Credit conversion system
+- **Social Chat System**: Point-to-point messaging with notification queue support
 
 ## Quick Start
 
@@ -111,6 +112,30 @@ type TokenInfo = record {
   credit_balance: nat64;
   staked_credits: nat64;
   kappa_multiplier: float64;
+};
+```
+
+#### Social Chat System
+```candid
+type MessageMode = variant {
+  Text;
+  Voice;
+  Image;
+  Emoji;
+};
+
+type ChatMessage = record {
+  send_by: text;
+  content: text;
+  mode: MessageMode;
+  timestamp: nat64;
+};
+
+type NotificationItem = record {
+  social_pair_key: text;
+  to_who: text;
+  message_id: nat64;
+  timestamp: nat64;
 };
 ```
 
@@ -258,6 +283,45 @@ type TokenInfo = record {
 - **`get_recharge_history_api(principal: text, offset: nat64, limit: nat64) -> vec RechargeRecord`**
   - Get recharge transaction history
 
+#### 9. Social Chat System
+
+##### Core Chat Operations
+- **`generate_social_pair_key(principal1: text, principal2: text) -> text`**
+  - Generate deterministic social pair key from two principal IDs
+  - Uses sorting algorithm to ensure same key regardless of sender/receiver order
+  
+- **`send_chat_message(sender_principal: text, receiver_principal: text, content: text, mode: MessageMode) -> variant { Ok: nat64; Err: text }`**
+  - Send chat message between two users
+  - Supports Text, Voice, Image, and Emoji modes
+  - Non-text content should be base64 encoded
+  - Automatically pushes notification to receiver's queue
+  
+- **`get_recent_chat_messages(principal1: text, principal2: text) -> vec ChatMessage`**
+  - Get last 5 chat messages between two users
+  - Messages returned in chronological order
+  
+- **`get_chat_messages_paginated(principal1: text, principal2: text, offset: nat64, limit: nat64) -> vec ChatMessage`**
+  - Get paginated chat messages with offset and limit
+  - Useful for loading chat history in chunks
+  
+- **`get_chat_message_count(principal1: text, principal2: text) -> nat64`**
+  - Get total number of messages between two users
+
+##### Notification Queue System
+- **`pop_notification(receiver_principal: text) -> opt NotificationItem`**
+  - Pop and remove the first notification for receiver
+  - Returns None if no notifications available
+  - Used for polling new messages
+  
+- **`get_notifications_for_receiver(receiver_principal: text) -> vec NotificationItem`**
+  - Get all notifications for receiver without removing them
+  - Useful for checking notification count
+  
+- **`clear_notifications_for_pair(social_pair_key: text, receiver_principal: text) -> variant { Ok: nat64; Err: text }`**
+  - Clear all notifications for specific social pair and receiver
+  - Returns number of notifications removed
+  - Useful for marking conversations as read
+
 ## Architecture
 
 ### Core Components
@@ -268,6 +332,7 @@ type TokenInfo = record {
 4. **Trace Storage** (`trace_storage.rs`): Execution tracking and audit trails
 5. **Stable Memory Storage** (`stable_mem_storage.rs`): Persistent data storage
 6. **Mining Rewards** (`mining_reword.rs`): Automated reward distribution
+7. **Society Profile Types** (`society_profile_types.rs`): User profiles, contacts, and social chat system
 
 ### Data Flow
 

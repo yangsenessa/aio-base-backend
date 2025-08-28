@@ -200,4 +200,16 @@ thread_local! {
             MEMORY_MANAGER.with(|m| m.borrow().get(MemoryId::new(72)))
         )
     );
+
+    // Social Chat Storage
+    pub static CHAT_HISTORIES: RefCell<StableBTreeMap<crate::society_profile_types::SocialPairKey, crate::society_profile_types::ChatHistory, Memory>> = RefCell::new(
+        StableBTreeMap::init(
+            MEMORY_MANAGER.with(|m| m.borrow().get(MemoryId::new(80)))
+        )
+    );
+    pub static NOTIFICATION_QUEUE: RefCell<StableBTreeMap<crate::society_profile_types::NotificationKey, crate::society_profile_types::NotificationItem, Memory>> = RefCell::new(
+        StableBTreeMap::init(
+            MEMORY_MANAGER.with(|m| m.borrow().get(MemoryId::new(81)))
+        )
+    );
 } 

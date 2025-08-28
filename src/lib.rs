@@ -1284,7 +1284,7 @@ fn get_total_user_profiles() -> u64 {
 
 // ==== Contact API ====
 
-use society_profile_types::{Contact, ContactType, ContactStatus};
+use society_profile_types::{Contact, ContactType, ContactStatus, ChatMessage, MessageMode, NotificationItem};
 
 #[ic_cdk::update]
 fn upsert_contact(contact: Contact) -> Result<u64, String> {
@@ -1413,6 +1413,93 @@ fn update_user_devices(principal_id: String, devices: Vec<String>) -> Result<Use
     ic_cdk::println!("CALL[update_user_devices] Input: principal_id={}, devices={:?}", principal_id, devices);
     let result = society_profile_types::update_user_devices(principal_id, devices);
     ic_cdk::println!("CALL[update_user_devices] Output: {:?}", result);
+    result
+}
+
+// ==== Social Chat API ====
+
+/// Generate social pair key from two principal IDs
+#[ic_cdk::query]
+fn generate_social_pair_key(principal1: String, principal2: String) -> String {
+    ic_cdk::println!("CALL[generate_social_pair_key] Input: principal1={}, principal2={}", principal1, principal2);
+    let result = society_profile_types::generate_social_pair_key(principal1, principal2);
+    ic_cdk::println!("CALL[generate_social_pair_key] Output: {}", result);
+    result
+}
+
+/// Send a chat message between two users
+#[ic_cdk::update]
+fn send_chat_message(
+    sender_principal: String,
+    receiver_principal: String,
+    content: String,
+    mode: MessageMode,
+) -> Result<u64, String> {
+    ic_cdk::println!("CALL[send_chat_message] Input: sender={}, receiver={}, mode={:?}", sender_principal, receiver_principal, mode);
+    let result = society_profile_types::add_chat_message(sender_principal, receiver_principal, content, mode);
+    ic_cdk::println!("CALL[send_chat_message] Output: {:?}", result);
+    result
+}
+
+/// Get recent chat messages (last 5 messages) between two users
+#[ic_cdk::query]
+fn get_recent_chat_messages(principal1: String, principal2: String) -> Vec<ChatMessage> {
+    ic_cdk::println!("CALL[get_recent_chat_messages] Input: principal1={}, principal2={}", principal1, principal2);
+    let result = society_profile_types::get_recent_chat_messages(principal1, principal2);
+    ic_cdk::println!("CALL[get_recent_chat_messages] Output: count={}", result.len());
+    result
+}
+
+/// Get paginated chat messages between two users
+#[ic_cdk::query]
+fn get_chat_messages_paginated(
+    principal1: String,
+    principal2: String,
+    offset: u64,
+    limit: u64,
+) -> Vec<ChatMessage> {
+    ic_cdk::println!("CALL[get_chat_messages_paginated] Input: principal1={}, principal2={}, offset={}, limit={}", principal1, principal2, offset, limit);
+    let result = society_profile_types::get_chat_messages_paginated(principal1, principal2, offset, limit as usize);
+    ic_cdk::println!("CALL[get_chat_messages_paginated] Output: count={}", result.len());
+    result
+}
+
+/// Get total message count between two users
+#[ic_cdk::query]
+fn get_chat_message_count(principal1: String, principal2: String) -> u64 {
+    ic_cdk::println!("CALL[get_chat_message_count] Input: principal1={}, principal2={}", principal1, principal2);
+    let result = society_profile_types::get_chat_message_count(principal1, principal2);
+    ic_cdk::println!("CALL[get_chat_message_count] Output: {}", result);
+    result
+}
+
+/// Pop notification from queue for specific receiver
+#[ic_cdk::update]
+fn pop_notification(receiver_principal: String) -> Option<NotificationItem> {
+    ic_cdk::println!("CALL[pop_notification] Input: receiver_principal={}", receiver_principal);
+    let result = society_profile_types::pop_notification(receiver_principal);
+    ic_cdk::println!("CALL[pop_notification] Output: exists={}", result.is_some());
+    result
+}
+
+/// Get all notifications for a receiver (without removing them)
+#[ic_cdk::query]
+fn get_notifications_for_receiver(receiver_principal: String) -> Vec<NotificationItem> {
+    ic_cdk::println!("CALL[get_notifications_for_receiver] Input: receiver_principal={}", receiver_principal);
+    let result = society_profile_types::get_notifications_for_receiver(receiver_principal);
+    ic_cdk::println!("CALL[get_notifications_for_receiver] Output: count={}", result.len());
+    result
+}
+
+/// Clear all notifications for a specific social pair and receiver
+#[ic_cdk::update]
+fn clear_notifications_for_pair(
+    social_pair_key: String,
+    receiver_principal: String,
+) -> Result<u64, String> {
+    ic_cdk::println!("CALL[clear_notifications_for_pair] Input: social_pair_key={}, receiver_principal={}", social_pair_key, receiver_principal);
+    let result = society_profile_types::clear_notifications_for_pair(social_pair_key, receiver_principal);
+    ic_cdk::println!("CALL[clear_notifications_for_pair] Output: {:?}", result);
     result
 }
 

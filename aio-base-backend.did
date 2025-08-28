@@ -400,6 +400,36 @@ type Contact = record {
   metadata: opt text;
 };
 
+// ==== Social Chat Types ====
+
+type MessageMode = variant {
+  Text;
+  Voice;
+  Image;
+  Emoji;
+};
+
+type ChatMessage = record {
+  send_by: text;
+  content: text;
+  mode: MessageMode;
+  timestamp: nat64;
+};
+
+type ChatHistory = record {
+  social_pair_key: text;
+  messages: vec ChatMessage;
+  created_at: nat64;
+  updated_at: nat64;
+};
+
+type NotificationItem = record {
+  social_pair_key: text;
+  to_who: text;
+  message_id: nat64;
+  timestamp: nat64;
+};
+
 service : {
   // Basic API
   "greet": (text) -> (text) query;
@@ -591,4 +621,14 @@ service : {
   "add_user_device": (text, text) -> (variant { Ok: UserProfile; Err: text });
   "remove_user_device": (text, text) -> (variant { Ok: UserProfile; Err: text });
   "update_user_devices": (text, vec text) -> (variant { Ok: UserProfile; Err: text });
+
+  // Social Chat API
+  "generate_social_pair_key": (text, text) -> (text) query;
+  "send_chat_message": (text, text, text, MessageMode) -> (variant { Ok: nat64; Err: text });
+  "get_recent_chat_messages": (text, text) -> (vec ChatMessage) query;
+  "get_chat_messages_paginated": (text, text, nat64, nat64) -> (vec ChatMessage) query;
+  "get_chat_message_count": (text, text) -> (nat64) query;
+  "pop_notification": (text) -> (opt NotificationItem);
+  "get_notifications_for_receiver": (text) -> (vec NotificationItem) query;
+  "clear_notifications_for_pair": (text, text) -> (variant { Ok: nat64; Err: text });
 }
