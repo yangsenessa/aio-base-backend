@@ -407,6 +407,17 @@ type MessageMode = variant {
   Voice;
   Image;
   Emoji;
+  PixelArt;
+};
+
+type PixelArtData = record {
+  chat_format: text;
+  device_format: text;
+  width: nat32;
+  height: nat32;
+  palette: vec text;
+  source_type: text;
+  source_id: opt text;
 };
 
 type ChatMessage = record {

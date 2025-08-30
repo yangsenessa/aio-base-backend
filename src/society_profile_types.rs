@@ -864,13 +864,26 @@ pub enum MessageMode {
     Voice,          // Voice message (base64 encoded)
     Image,          // Image message (base64 encoded) 
     Emoji,          // Emoji/sticker message (base64 encoded)
+    PixelArt,       // Pixel art message with both chat and device formats
+}
+
+/// Pixel art data for chat and device
+#[derive(CandidType, Serialize, Deserialize, Clone, Debug)]
+pub struct PixelArtData {
+    pub chat_format: String,    // Base64 encoded image for chat display (PNG/JPEG)
+    pub device_format: String,  // JSON string for device (compact pixel array)
+    pub width: u32,             // Original width
+    pub height: u32,            // Original height
+    pub palette: Vec<String>,   // Color palette
+    pub source_type: String,    // "emoji" or "creation"
+    pub source_id: Option<String>, // Project ID for user creations
 }
 
 /// Individual chat message structure
 #[derive(CandidType, Serialize, Deserialize, Clone, Debug)]
 pub struct ChatMessage {
     pub send_by: String,        // Sender's principal ID
-    pub content: String,        // Message content (base64 for non-text modes)
+    pub content: String,        // Message content (base64 for non-text modes, JSON for PixelArt)
     pub mode: MessageMode,      // Content type
     pub timestamp: u64,         // Message timestamp
 }
