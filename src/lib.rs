@@ -6,6 +6,7 @@ mod aio_protocal_types;
 mod account_storage;
 mod trace_storage;
 mod society_profile_types;
+mod pixel_creation_types;
 pub mod mining_reword;
 pub mod token_economy_types;
 pub mod token_economy;
@@ -15,6 +16,7 @@ use agent_asset_types::AgentItem;
 use mcp_asset_types::{McpItem, McpStackRecord};
 use trace_storage::{TraceLog, IOValue};
 use society_profile_types::UserProfile;
+use pixel_creation_types::{Project, Version, PixelArtSource, ProjectId, VersionId};
 use ic_cdk::caller;
 use aio_protocal_types::AioIndexManager;
 use serde_json;
@@ -1503,5 +1505,122 @@ fn clear_notifications_for_pair(
     result
 }
 
+// ==== Pixel Creation API ====
+
+/// Create a new pixel art project
+#[ic_cdk::update]
+fn create_pixel_project(principal_id: String, source: PixelArtSource, message: Option<String>) -> Result<ProjectId, String> {
+    ic_cdk::println!("CALL[create_pixel_project] Input: principal_id={}, source width={}, height={}, message={:?}", 
+                     principal_id, source.width, source.height, message);
+    let caller = Principal::from_text(&principal_id)
+        .map_err(|e| format!("Invalid principal ID: {}", e))?;
+    let result = pixel_creation_types::create_project(caller, source, message);
+    ic_cdk::println!("CALL[create_pixel_project] Output: {:?}", result);
+    result
+}
+
+/// Save a new version to an existing project
+#[ic_cdk::update]
+fn save_pixel_version(
+    principal_id: String,
+    project_id: ProjectId,
+    source: PixelArtSource,
+    message: Option<String>,
+    if_match_version: Option<String>
+) -> Result<VersionId, String> {
+    ic_cdk::println!("CALL[save_pixel_version] Input: principal_id={}, project_id={}, message={:?}, if_match_version={:?}", 
+                     principal_id, project_id, message, if_match_version);
+    let caller = Principal::from_text(&principal_id)
+        .map_err(|e| format!("Invalid principal ID: {}", e))?;
+    let result = pixel_creation_types::save_version(caller, project_id, source, message, if_match_version);
+    ic_cdk::println!("CALL[save_pixel_version] Output: {:?}", result);
+    result
+}
+
+/// Get a project by ID
+#[ic_cdk::query]
+fn get_pixel_project(project_id: ProjectId) -> Option<Project> {
+    ic_cdk::println!("CALL[get_pixel_project] Input: project_id={}", project_id);
+    let result = pixel_creation_types::get_project(project_id);
+    ic_cdk::println!("CALL[get_pixel_project] Output: exists={}", result.is_some());
+    result
+}
+
+/// Get a specific version of a project
+#[ic_cdk::query]
+fn get_pixel_version(project_id: ProjectId, version_id: VersionId) -> Option<Version> {
+    ic_cdk::println!("CALL[get_pixel_version] Input: project_id={}, version_id={}", project_id, version_id);
+    let result = pixel_creation_types::get_version(project_id, version_id);
+    ic_cdk::println!("CALL[get_pixel_version] Output: exists={}", result.is_some());
+    result
+}
+
+/// Get current source of a project
+#[ic_cdk::query]
+fn get_pixel_current_source(project_id: ProjectId) -> Option<PixelArtSource> {
+    ic_cdk::println!("CALL[get_pixel_current_source] Input: project_id={}", project_id);
+    let result = pixel_creation_types::get_current_source(project_id);
+    ic_cdk::println!("CALL[get_pixel_current_source] Output: exists={}", result.is_some());
+    result
+}
+
+/// Export project for IoT device in compact JSON format
+#[ic_cdk::query]
+fn export_pixel_for_device(project_id: ProjectId, version_id: Option<VersionId>) -> Result<String, String> {
+    ic_cdk::println!("CALL[export_pixel_for_device] Input: project_id={}, version_id={:?}", project_id, version_id);
+    let result = pixel_creation_types::export_for_device(project_id, version_id);
+    match &result {
+        Ok(json) => ic_cdk::println!("CALL[export_pixel_for_device] Output: Success, JSON length={}", json.len()),
+        Err(e) => ic_cdk::println!("CALL[export_pixel_for_device] Output: Error - {}", e),
+    }
+    result
+}
+
+/// List projects by owner with pagination
+#[ic_cdk::query]
+fn list_pixel_projects_by_owner(owner: Principal, page: u32, page_size: u32) -> Vec<Project> {
+    ic_cdk::println!("CALL[list_pixel_projects_by_owner] Input: owner={}, page={}, page_size={}", owner, page, page_size);
+    let result = pixel_creation_types::list_projects_by_owner(owner, page, page_size);
+    ic_cdk::println!("CALL[list_pixel_projects_by_owner] Output: count={}", result.len());
+    result
+}
+
+/// Get project count by owner
+#[ic_cdk::query]
+fn get_pixel_project_count_by_owner(owner: Principal) -> u64 {
+    ic_cdk::println!("CALL[get_pixel_project_count_by_owner] Input: owner={}", owner);
+    let result = pixel_creation_types::get_project_count_by_owner(owner);
+    ic_cdk::println!("CALL[get_pixel_project_count_by_owner] Output: {}", result);
+    result
+}
+
+/// Delete a project (only by owner)
+#[ic_cdk::update]
+fn delete_pixel_project(principal_id: String, project_id: ProjectId) -> Result<bool, String> {
+    ic_cdk::println!("CALL[delete_pixel_project] Input: principal_id={}, project_id={}", principal_id, project_id);
+    let caller = Principal::from_text(&principal_id)
+        .map_err(|e| format!("Invalid principal ID: {}", e))?;
+    let result = pixel_creation_types::delete_project(caller, project_id);
+    ic_cdk::println!("CALL[delete_pixel_project] Output: {:?}", result);
+    result
+}
+
+/// Get all projects with pagination
+#[ic_cdk::query]
+fn get_pixel_projects_paginated(offset: u64, limit: u64) -> Vec<Project> {
+    ic_cdk::println!("CALL[get_pixel_projects_paginated] Input: offset={}, limit={}", offset, limit);
+    let result = pixel_creation_types::get_projects_paginated(offset, limit as usize);
+    ic_cdk::println!("CALL[get_pixel_projects_paginated] Output: count={}", result.len());
+    result
+}
+
+/// Get total project count
+#[ic_cdk::query]
+fn get_total_pixel_project_count() -> u64 {
+    ic_cdk::println!("CALL[get_total_pixel_project_count] Input: none");
+    let result = pixel_creation_types::get_total_project_count();
+    ic_cdk::println!("CALL[get_total_pixel_project_count] Output: {}", result);
+    result
+}
 
 

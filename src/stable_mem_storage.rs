@@ -6,6 +6,7 @@ use crate::mining_reword::{MiningRewardPolicy, RewardEntry, UserRewardKey};
 use crate::token_economy_types::RewardIdList;
 use crate::account_storage::AccountKey;
 use crate::token_economy_types::AccountInfo;
+use crate::pixel_creation_types::{Project, ProjectOwnerKey};
 
 // Type alias for memory
 pub type Memory = VirtualMemory<DefaultMemoryImpl>;
@@ -210,6 +211,18 @@ thread_local! {
     pub static NOTIFICATION_QUEUE: RefCell<StableBTreeMap<crate::society_profile_types::NotificationKey, crate::society_profile_types::NotificationItem, Memory>> = RefCell::new(
         StableBTreeMap::init(
             MEMORY_MANAGER.with(|m| m.borrow().get(MemoryId::new(81)))
+        )
+    );
+
+    // Pixel Creation Storage
+    pub static PIXEL_PROJECTS: RefCell<StableBTreeMap<String, Project, Memory>> = RefCell::new(
+        StableBTreeMap::init(
+            MEMORY_MANAGER.with(|m| m.borrow().get(MemoryId::new(90)))
+        )
+    );
+    pub static PROJECT_OWNER_INDEX: RefCell<StableBTreeMap<ProjectOwnerKey, (), Memory>> = RefCell::new(
+        StableBTreeMap::init(
+            MEMORY_MANAGER.with(|m| m.borrow().get(MemoryId::new(91)))
         )
     );
 } 

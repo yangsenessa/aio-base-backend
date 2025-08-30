@@ -18,6 +18,7 @@ The AIO Base Backend is built on the Internet Computer Protocol (ICP) and serves
 - **Mining Rewards**: Automated reward distribution system
 - **Credit Exchange**: ICP-to-Credit conversion system
 - **Social Chat System**: Point-to-point messaging with notification queue support
+- **Pixel Art Creation**: Complete pixel art project management with version control and IoT export
 
 ## Quick Start
 
@@ -136,6 +137,49 @@ type NotificationItem = record {
   to_who: text;
   message_id: nat64;
   timestamp: nat64;
+};
+```
+
+#### Pixel Art Creation System
+```candid
+type ProjectId = text;
+type VersionId = text;
+
+type PixelArtSource = record {
+  width: nat32;
+  height: nat32;
+  palette: vec text;              // HEX color values like "#FF0000"
+  pixels: vec (vec nat16);        // Color palette index matrix
+  frames: opt vec Frame;          // Optional animation frames
+  metadata: opt SourceMeta;       // Optional metadata
+};
+
+type Frame = record {
+  duration_ms: nat32;             // Frame duration in milliseconds
+  pixels: vec (vec nat16);        // Pixel matrix for this frame
+};
+
+type SourceMeta = record {
+  title: opt text;
+  description: opt text;
+  tags: opt vec text;
+};
+
+type Version = record {
+  version_id: VersionId;
+  created_at: nat64;              // Unix timestamp in seconds
+  editor: principal;              // Version creator
+  message: opt text;              // Version commit message
+  source: PixelArtSource;
+};
+
+type Project = record {
+  project_id: ProjectId;
+  owner: principal;
+  created_at: nat64;
+  updated_at: nat64;
+  current_version: Version;
+  history: vec Version;           // Complete version history
 };
 ```
 
@@ -322,6 +366,59 @@ type NotificationItem = record {
   - Returns number of notifications removed
   - Useful for marking conversations as read
 
+#### 10. Pixel Art Creation System
+
+##### Project Management
+- **`create_pixel_project(source: PixelArtSource, message: opt text) -> variant { Ok: ProjectId; Err: text }`**
+  - Create new pixel art project with initial version
+  - Caller becomes project owner
+  - Returns unique project identifier
+  
+- **`get_pixel_project(project_id: ProjectId) -> opt Project`**
+  - Retrieve complete project information including version history
+  - Returns None if project doesn't exist or access denied
+  
+- **`delete_pixel_project(project_id: ProjectId) -> variant { Ok: text; Err: text }`**
+  - Delete entire project and all its versions
+  - Only project owner can delete
+  - Returns confirmation message
+
+##### Version Control
+- **`save_pixel_version(project_id: ProjectId, source: PixelArtSource, message: opt text, if_match_version: opt text) -> variant { Ok: VersionId; Err: text }`**
+  - Save new version to existing project
+  - Supports optimistic concurrency control with if_match_version
+  - Updates project's current_version and appends to history
+  
+- **`get_pixel_version(project_id: ProjectId, version_id: VersionId) -> opt Version`**
+  - Retrieve specific version from project history
+  - Useful for version comparison and rollback
+  
+- **`get_pixel_current_source(project_id: ProjectId) -> opt PixelArtSource`**
+  - Get current version's pixel art source data
+  - Optimized for quick access to latest artwork
+
+##### Export and Sharing
+- **`export_pixel_for_device(project_id: ProjectId, version_id: opt VersionId) -> variant { Ok: text; Err: text }`**
+  - Export compact JSON format optimized for IoT devices
+  - If version_id not specified, exports current version
+  - Returns minified JSON with type identifier "pixel_art@1"
+
+##### Discovery and Listing
+- **`list_pixel_projects_by_owner(owner: principal, offset: nat64, limit: nat64) -> vec Project`**
+  - Get paginated list of projects owned by specific user
+  - Supports efficient browsing of large project collections
+  
+- **`get_total_pixel_project_count() -> nat64`**
+  - Get total number of pixel art projects in system
+  - Useful for pagination and statistics
+
+##### Data Validation Features
+- **Canvas Size Validation**: Supports 1x1 to 512x512 pixel canvases
+- **Color Palette Management**: Up to 256 colors per project with HEX validation
+- **Animation Support**: Up to 60 frames with duration control
+- **Payload Size Limits**: Maximum 1MB per project for optimal performance
+- **Optimistic Locking**: Prevents conflicting concurrent edits
+
 ## Architecture
 
 ### Core Components
@@ -333,6 +430,7 @@ type NotificationItem = record {
 5. **Stable Memory Storage** (`stable_mem_storage.rs`): Persistent data storage
 6. **Mining Rewards** (`mining_reword.rs`): Automated reward distribution
 7. **Society Profile Types** (`society_profile_types.rs`): User profiles, contacts, and social chat system
+8. **Pixel Creation Types** (`pixel_creation_types.rs`): Pixel art project management with version control
 
 ### Data Flow
 
@@ -459,12 +557,50 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
+## Recent Updates
+
+### Version 1.1.0 - Pixel Art Creation System (December 2024)
+
+#### New Features
+- **Complete Pixel Art Creation System**: Added comprehensive pixel art project management with full version control capabilities
+- **Project Management**: Create, retrieve, update, and delete pixel art projects with owner-based access control
+- **Version History**: Full version tracking with optimistic concurrency control and rollback capabilities
+- **Animation Support**: Support for animated pixel art with frame-based timeline and duration control
+- **IoT Export**: Compact JSON export format optimized for IoT devices and embedded systems
+- **Advanced Validation**: Comprehensive data validation including canvas size, color palette, and animation constraints
+
+#### Technical Implementation
+- **New Module**: `pixel_creation_types.rs` - Core data structures and business logic
+- **Stable Storage**: Memory allocation for pixel projects (MemoryId: 90-91) with ic-stable-structures
+- **API Endpoints**: 9 new Candid API functions for complete pixel art workflow
+- **Data Types**: ProjectId, VersionId, PixelArtSource, Frame, Version, Project with full Candid support
+- **Performance**: 1MB payload limits, up to 512x512 canvas, 256 colors, 60 animation frames
+
+#### API Additions
+- `create_pixel_project` - Project creation with initial version
+- `save_pixel_version` - Version control with optimistic locking
+- `get_pixel_project` - Complete project retrieval with history
+- `get_pixel_version` - Specific version access
+- `get_pixel_current_source` - Current version quick access
+- `export_pixel_for_device` - IoT-optimized export
+- `list_pixel_projects_by_owner` - User project discovery
+- `delete_pixel_project` - Project removal
+- `get_total_pixel_project_count` - System statistics
+
+#### Integration Ready
+- **Frontend Integration**: Complete JavaScript service class with React/Vue hooks
+- **Authentication**: Full IC identity integration with Principal-based access control
+- **Documentation**: Comprehensive API documentation and integration examples
+- **Error Handling**: Robust validation and error reporting system
+
+---
+
 ## Support
 
 For questions and support, please open an issue in the repository or contact the development team.
 
 ---
 
-**Version**: 1.0.0  
-**Last Updated**: 2024  
+**Version**: 1.1.0  
+**Last Updated**: December 2024  
 **Platform**: Internet Computer Protocol (ICP)
