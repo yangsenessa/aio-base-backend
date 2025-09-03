@@ -7,6 +7,7 @@ use crate::token_economy_types::RewardIdList;
 use crate::account_storage::AccountKey;
 use crate::token_economy_types::AccountInfo;
 use crate::pixel_creation_types::{Project, ProjectOwnerKey};
+use crate::device_types::{DeviceInfo, DeviceOwnerKey, DeviceIdKey};
 
 // Type alias for memory
 pub type Memory = VirtualMemory<DefaultMemoryImpl>;
@@ -223,6 +224,23 @@ thread_local! {
     pub static PROJECT_OWNER_INDEX: RefCell<StableBTreeMap<ProjectOwnerKey, (), Memory>> = RefCell::new(
         StableBTreeMap::init(
             MEMORY_MANAGER.with(|m| m.borrow().get(MemoryId::new(91)))
+        )
+    );
+
+    // Device Storage
+    pub static DEVICES: RefCell<StableVec<DeviceInfo, Memory>> = RefCell::new(
+        StableVec::init(
+            MEMORY_MANAGER.with(|m| m.borrow().get(MemoryId::new(100)))
+        ).unwrap()
+    );
+    pub static DEVICE_OWNER_INDEX: RefCell<StableBTreeMap<DeviceOwnerKey, u64, Memory>> = RefCell::new(
+        StableBTreeMap::init(
+            MEMORY_MANAGER.with(|m| m.borrow().get(MemoryId::new(101)))
+        )
+    );
+    pub static DEVICE_ID_INDEX: RefCell<StableBTreeMap<DeviceIdKey, u64, Memory>> = RefCell::new(
+        StableBTreeMap::init(
+            MEMORY_MANAGER.with(|m| m.borrow().get(MemoryId::new(102)))
         )
     );
 } 

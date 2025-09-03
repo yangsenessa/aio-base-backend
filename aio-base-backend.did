@@ -441,6 +441,61 @@ type NotificationItem = record {
   timestamp: nat64;
 };
 
+// ==== Device Management Types ====
+
+type DeviceType = variant {
+  Mobile;
+  Desktop;
+  Server;
+  IoT;
+  Embedded;
+  Other: text;
+};
+
+type DeviceStatus = variant {
+  Online;
+  Offline;
+  Maintenance;
+  Disabled;
+};
+
+type DeviceCapability = variant {
+  Audio;
+  Video;
+  Storage;
+  Network;
+  Compute;
+  Sensor;
+  Custom: text;
+};
+
+type DeviceInfo = record {
+  id: text;
+  name: text;
+  device_type: DeviceType;
+  owner: principal;
+  status: DeviceStatus;
+  capabilities: vec DeviceCapability;
+  metadata: vec record { text; text };
+  created_at: nat64;
+  updated_at: nat64;
+  last_seen: nat64;
+};
+
+type DeviceFilter = record {
+  owner: opt principal;
+  device_type: opt DeviceType;
+  status: opt DeviceStatus;
+  capability: opt DeviceCapability;
+};
+
+type DeviceListResponse = record {
+  devices: vec DeviceInfo;
+  total: nat64;
+  offset: nat64;
+  limit: nat64;
+};
+
 // ==== Pixel Creation Types ====
 
 type ProjectId = text;
@@ -699,4 +754,15 @@ service : {
   "delete_pixel_project": (text, ProjectId) -> (variant { Ok: bool; Err: text });
   "get_pixel_projects_paginated": (nat64, nat64) -> (vec Project) query;
   "get_total_pixel_project_count": () -> (nat64) query;
+
+  // Device Management API
+  "add_device": (DeviceInfo) -> (variant { Ok: nat64; Err: text });
+  "get_device_by_id": (text) -> (opt DeviceInfo) query;
+  "get_devices_by_owner": (text) -> (vec DeviceInfo) query;
+  "update_device": (text, DeviceInfo) -> (variant { Ok; Err: text });
+  "delete_device": (text) -> (variant { Ok; Err: text });
+  "get_all_devices": (nat64, nat64) -> (DeviceListResponse) query;
+  "search_devices": (DeviceFilter) -> (vec DeviceInfo) query;
+  "update_device_status": (text, DeviceStatus) -> (variant { Ok; Err: text });
+  "update_device_last_seen": (text) -> (variant { Ok; Err: text });
 }

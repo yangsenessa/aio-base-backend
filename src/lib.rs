@@ -7,6 +7,7 @@ mod account_storage;
 mod trace_storage;
 mod society_profile_types;
 mod pixel_creation_types;
+mod device_types;
 pub mod mining_reword;
 pub mod token_economy_types;
 pub mod token_economy;
@@ -1620,6 +1621,92 @@ fn get_total_pixel_project_count() -> u64 {
     ic_cdk::println!("CALL[get_total_pixel_project_count] Input: none");
     let result = pixel_creation_types::get_total_project_count();
     ic_cdk::println!("CALL[get_total_pixel_project_count] Output: {}", result);
+    result
+}
+
+// ==== Device Management API ====
+
+use device_types::{DeviceInfo, DeviceType, DeviceStatus, DeviceCapability, DeviceFilter, DeviceListResponse, DeviceService};
+
+/// Add a new device
+#[ic_cdk::update]
+fn add_device(device_info: DeviceInfo) -> Result<u64, String> {
+    ic_cdk::println!("CALL[add_device] Input: device_info={:?}", device_info);
+    let result = DeviceService::add_device(device_info);
+    ic_cdk::println!("CALL[add_device] Output: {:?}", result);
+    result
+}
+
+/// Get device by ID
+#[ic_cdk::query]
+fn get_device_by_id(device_id: String) -> Option<DeviceInfo> {
+    ic_cdk::println!("CALL[get_device_by_id] Input: device_id={}", device_id);
+    let result = DeviceService::get_device_by_id(&device_id);
+    ic_cdk::println!("CALL[get_device_by_id] Output: exists={}", result.is_some());
+    result
+}
+
+/// Get devices by owner
+#[ic_cdk::query]
+fn get_devices_by_owner(owner: String) -> Vec<DeviceInfo> {
+    ic_cdk::println!("CALL[get_devices_by_owner] Input: owner={}", owner);
+    let principal = Principal::from_text(&owner).unwrap_or(Principal::anonymous());
+    let result = DeviceService::get_devices_by_owner(&principal);
+    ic_cdk::println!("CALL[get_devices_by_owner] Output: count={}", result.len());
+    result
+}
+
+/// Update device information
+#[ic_cdk::update]
+fn update_device(device_id: String, updated_device: DeviceInfo) -> Result<(), String> {
+    ic_cdk::println!("CALL[update_device] Input: device_id={}, updated_device={:?}", device_id, updated_device);
+    let result = DeviceService::update_device(&device_id, updated_device);
+    ic_cdk::println!("CALL[update_device] Output: {:?}", result);
+    result
+}
+
+/// Delete device
+#[ic_cdk::update]
+fn delete_device(device_id: String) -> Result<(), String> {
+    ic_cdk::println!("CALL[delete_device] Input: device_id={}", device_id);
+    let result = DeviceService::delete_device(&device_id);
+    ic_cdk::println!("CALL[delete_device] Output: {:?}", result);
+    result
+}
+
+/// Get all devices with pagination
+#[ic_cdk::query]
+fn get_all_devices(offset: u64, limit: u64) -> DeviceListResponse {
+    ic_cdk::println!("CALL[get_all_devices] Input: offset={}, limit={}", offset, limit);
+    let result = DeviceService::get_all_devices(offset, limit);
+    ic_cdk::println!("CALL[get_all_devices] Output: total={}, count={}", result.total, result.devices.len());
+    result
+}
+
+/// Search devices with filters
+#[ic_cdk::query]
+fn search_devices(filter: DeviceFilter) -> Vec<DeviceInfo> {
+    ic_cdk::println!("CALL[search_devices] Input: filter={:?}", filter);
+    let result = DeviceService::search_devices(filter);
+    ic_cdk::println!("CALL[search_devices] Output: count={}", result.len());
+    result
+}
+
+/// Update device status
+#[ic_cdk::update]
+fn update_device_status(device_id: String, status: DeviceStatus) -> Result<(), String> {
+    ic_cdk::println!("CALL[update_device_status] Input: device_id={}, status={:?}", device_id, status);
+    let result = DeviceService::update_device_status(&device_id, status);
+    ic_cdk::println!("CALL[update_device_status] Output: {:?}", result);
+    result
+}
+
+/// Update device last seen time
+#[ic_cdk::update]
+fn update_device_last_seen(device_id: String) -> Result<(), String> {
+    ic_cdk::println!("CALL[update_device_last_seen] Input: device_id={}", device_id);
+    let result = DeviceService::update_last_seen(&device_id);
+    ic_cdk::println!("CALL[update_device_last_seen] Output: {:?}", result);
     result
 }
 
