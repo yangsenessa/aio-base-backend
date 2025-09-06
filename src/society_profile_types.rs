@@ -865,6 +865,7 @@ pub enum MessageMode {
     Image,          // Image message (base64 encoded) 
     Emoji,          // Emoji/sticker message (base64 encoded)
     PixelArt,       // Pixel art message with both chat and device formats
+    Gif,            // GIF message with URL and metadata
 }
 
 /// Pixel art data for chat and device

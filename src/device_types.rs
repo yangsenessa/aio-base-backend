@@ -85,7 +85,7 @@ pub struct DeviceListResponse {
 
 // Implement Storable trait for DeviceInfo
 impl Storable for DeviceInfo {
-    const BOUND: Bound = Bound::Unbounded;
+    const BOUND: Bound = Bound::Bounded { max_size: 2 * 1024 * 1024, is_fixed_size: false }; // 2MB for device info
     
     fn to_bytes(&self) -> Cow<[u8]> {
         let bytes = bincode::serialize(self).expect("Failed to serialize DeviceInfo");
@@ -99,7 +99,7 @@ impl Storable for DeviceInfo {
 
 // Implement Storable trait for DeviceOwnerKey
 impl Storable for DeviceOwnerKey {
-    const BOUND: Bound = Bound::Unbounded;
+    const BOUND: Bound = Bound::Bounded { max_size: 1024, is_fixed_size: false }; // 1KB for device owner key
     
     fn to_bytes(&self) -> Cow<[u8]> {
         let bytes = bincode::serialize(self).expect("Failed to serialize DeviceOwnerKey");
@@ -113,7 +113,7 @@ impl Storable for DeviceOwnerKey {
 
 // Implement Storable trait for DeviceIdKey
 impl Storable for DeviceIdKey {
-    const BOUND: Bound = Bound::Unbounded;
+    const BOUND: Bound = Bound::Bounded { max_size: 512, is_fixed_size: false }; // 512B for device ID key
     
     fn to_bytes(&self) -> Cow<[u8]> {
         let bytes = bincode::serialize(self).expect("Failed to serialize DeviceIdKey");

@@ -408,6 +408,7 @@ type MessageMode = variant {
   Image;
   Emoji;
   PixelArt;
+  Gif;
 };
 
 type PixelArtData = record {

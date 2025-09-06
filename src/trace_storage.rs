@@ -89,7 +89,7 @@ pub struct TraceItem {
 type Memory = VirtualMemory<DefaultMemoryImpl>;
 
 impl Storable for IOValue {
-    const BOUND: Bound = Bound::Unbounded;
+    const BOUND: Bound = Bound::Bounded { max_size: 1024 * 1024, is_fixed_size: false }; // 1MB for IO value
 
     fn to_bytes(&self) -> Cow<[u8]> {
         Cow::Owned(candid::encode_one(self).unwrap())
@@ -101,7 +101,7 @@ impl Storable for IOValue {
 }
 
 impl Storable for IOValueType {
-    const BOUND: Bound = Bound::Unbounded;
+    const BOUND: Bound = Bound::Bounded { max_size: 1024 * 1024, is_fixed_size: false }; // 1MB for IO value type
 
     fn to_bytes(&self) -> Cow<[u8]> {
         Cow::Owned(candid::encode_one(self).unwrap())
@@ -113,7 +113,7 @@ impl Storable for IOValueType {
 }
 
 impl Storable for ProtocolCall {
-    const BOUND: Bound = Bound::Unbounded;
+    const BOUND: Bound = Bound::Bounded { max_size: 2 * 1024 * 1024, is_fixed_size: false }; // 2MB for protocol call
 
     fn to_bytes(&self) -> Cow<[u8]> {
         Cow::Owned(candid::encode_one(self).unwrap())
@@ -125,7 +125,7 @@ impl Storable for ProtocolCall {
 }
 
 impl Storable for TraceLog {
-    const BOUND: Bound = Bound::Unbounded;
+    const BOUND: Bound = Bound::Bounded { max_size: 10 * 1024 * 1024, is_fixed_size: false }; // 10MB for trace log
 
     fn to_bytes(&self) -> Cow<[u8]> {
         Cow::Owned(candid::encode_one(self).unwrap())
@@ -137,7 +137,7 @@ impl Storable for TraceLog {
 }
 
 impl Storable for TraceKey {
-    const BOUND: Bound = Bound::Unbounded;
+    const BOUND: Bound = Bound::Bounded { max_size: 1024, is_fixed_size: false }; // 1KB for trace key
 
     fn to_bytes(&self) -> Cow<[u8]> {
         Cow::Owned(candid::encode_one(self).unwrap())
@@ -149,7 +149,7 @@ impl Storable for TraceKey {
 }
 
 impl Storable for TraceItem {
-    const BOUND: Bound = Bound::Unbounded;
+    const BOUND: Bound = Bound::Bounded { max_size: 2 * 1024 * 1024, is_fixed_size: false }; // 2MB for trace item
 
     fn to_bytes(&self) -> Cow<[u8]> {
         Cow::Owned(candid::encode_one(self).unwrap())
