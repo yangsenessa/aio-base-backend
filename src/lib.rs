@@ -12,7 +12,10 @@ pub mod mining_reword;
 pub mod token_economy_types;
 pub mod token_economy;
 pub mod stable_mem_storage;
+mod bitpay;
+mod hmac;
 
+use candid::candid_method;
 use agent_asset_types::AgentItem;
 use mcp_asset_types::{McpItem, McpStackRecord};
 use trace_storage::{TraceLog, IOValue};
@@ -38,6 +41,8 @@ use ic_cdk_timers::TimerId;
 use std::time::Duration;
 use std::cell::RefCell;
 use candid::Principal;
+use crate::bitpay::{create_invoice as bp_create_invoice, get_invoice as bp_get_invoice, set_pos_token as bp_set_pos_token, token as bp_token};
+use crate::hmac::verify_webhook_sig;
 
 pub use account_storage::*;
 pub use trace_storage::*;
@@ -667,6 +672,203 @@ fn revert_Index_find_by_keywords_strategy(keywords: Vec<String>) -> String {
     
     ic_cdk::println!("CALL[revert_Index_find_by_keywords_strategy] Output: {}", json_result);
     json_result
+}
+
+#[derive(candid::CandidType, serde::Deserialize, Clone, Debug, PartialEq, Eq)]
+pub enum OrderStatus { Created, New, Paid, Confirmed, Complete, Expired, Invalid, Delivered }
+
+#[derive(candid::CandidType, serde::Deserialize, Clone, Debug)]
+pub struct CreateOrderArgs {
+    pub order_id: String,
+    pub amount: f64,
+    pub currency: String,
+    pub buyer_email: Option<String>,
+    pub shipping_address: String,
+    pub sku: String,
+    pub redirect_base: String,
+}
+
+#[derive(candid::CandidType, serde::Deserialize, Clone, Debug)]
+pub struct Order {
+    pub order_id: String,
+    pub amount: f64,
+    pub currency: String,
+    pub buyer_email: Option<String>,
+    pub shipping_address: String,
+    pub sku: String,
+    pub bitpay_invoice_id: Option<String>,
+    pub bitpay_invoice_url: Option<String>,
+    pub status: OrderStatus,
+    pub shipment_no: Option<String>,
+    pub created_at_ns: u64,
+    pub updated_at_ns: u64,
+}
+
+#[derive(candid::CandidType, serde::Deserialize, Clone, Debug)]
+pub struct InvoiceResp { pub invoice_id: String, pub invoice_url: String }
+
+thread_local! {
+    static ORDERS: RefCell<BTreeMap<String, Order>> = RefCell::new(BTreeMap::new());
+}
+
+fn now_ns() -> u64 { ic_cdk::api::time() }
+
+fn get_order(order_id: &str) -> Option<Order> {
+    ORDERS.with(|m| m.borrow().get(order_id).cloned())
+}
+fn put_order(o: Order) {
+    ORDERS.with(|m| { m.borrow_mut().insert(o.order_id.clone(), o); });
+}
+fn upsert_order(order_id: &str, patch: impl FnOnce(&mut Order)) -> Order {
+    ORDERS.with(|m| {
+        let mut map = m.borrow_mut();
+        let mut o = map.get(order_id).cloned().unwrap_or_else(|| Order{
+            order_id: order_id.to_string(),
+            amount: 0.0, currency: "USD".into(), buyer_email: None,
+            shipping_address: "".into(), sku: "".into(),
+            bitpay_invoice_id: None, bitpay_invoice_url: None,
+            status: OrderStatus::Created, shipment_no: None,
+            created_at_ns: now_ns(), updated_at_ns: now_ns(),
+        });
+        patch(&mut o);
+        o.updated_at_ns = now_ns();
+        map.insert(order_id.to_string(), o.clone());
+        o
+    })
+}
+
+#[update]
+#[candid_method(update)]
+fn admin_set_bitpay_pos_token(token: String) {
+    if !ic_cdk::api::is_controller(&ic_cdk::api::caller()) {
+        ic_cdk::trap("Only controller can set POS token");
+    }
+    bp_set_pos_token(token);
+}
+
+#[update]
+#[candid_method(update)]
+async fn create_order_and_invoice(args: CreateOrderArgs) -> Result<InvoiceResp, String> {
+    if let Some(o) = get_order(&args.order_id) {
+        if let (Some(id), Some(url)) = (&o.bitpay_invoice_id, &o.bitpay_invoice_url) {
+            if !matches!(o.status, OrderStatus::Confirmed|OrderStatus::Complete|OrderStatus::Delivered) {
+                return Ok(InvoiceResp{ invoice_id: id.clone(), invoice_url: url.clone() });
+            }
+        }
+    }
+
+    put_order(Order{
+        order_id: args.order_id.clone(),
+        amount: args.amount, currency: args.currency.clone(),
+        buyer_email: args.buyer_email.clone(),
+        shipping_address: args.shipping_address.clone(),
+        sku: args.sku.clone(),
+        bitpay_invoice_id: None, bitpay_invoice_url: None,
+        status: OrderStatus::Created,
+        shipment_no: None,
+        created_at_ns: now_ns(), updated_at_ns: now_ns()
+    });
+
+    // TODO:: need to update
+    let callback = "https://backend_canister_id/bitpay/webhook";
+    let redirect = format!("{}/checkout/success?orderId={}", args.redirect_base, urlencoding::encode(&args.order_id));
+
+    let data = bp_create_invoice(serde_json::json!({
+        "price": args.amount,
+        "currency": args.currency,
+        "orderId": args.order_id,
+        "buyerEmail": args.buyer_email,
+        "notificationURL": callback,
+        "redirectURL": redirect,
+        "itemDesc": format!("PixelMug ({})", args.sku)
+    }))
+        .await.map_err(|e| e.to_string())?;
+
+    let invoice_id = data["id"].as_str().unwrap_or_default().to_string();
+    let invoice_url = data["url"].as_str().unwrap_or_default().to_string();
+    let status = match data["status"].as_str().unwrap_or("new") {
+        "new" => OrderStatus::New, "paid" => OrderStatus::Paid,
+        "confirmed" => OrderStatus::Confirmed, "complete" => OrderStatus::Complete,
+        "expired" => OrderStatus::Expired, "invalid" => OrderStatus::Invalid, _ => OrderStatus::New
+    };
+
+    upsert_order(&args.order_id, |o| {
+        o.bitpay_invoice_id = Some(invoice_id.clone());
+        o.bitpay_invoice_url = Some(invoice_url.clone());
+        o.status = status;
+    });
+
+    Ok(InvoiceResp{ invoice_id, invoice_url })
+}
+
+#[query]
+#[candid_method(query)]
+fn get_order_by_id(order_id: String) -> Option<Order> {
+    get_order(&order_id)
+}
+
+#[derive(serde::Deserialize)]
+struct HttpRequest { method: String, url: String, headers: Vec<(String,String)>, body: Option<Vec<u8>> }
+#[derive(serde::Serialize)]
+struct HttpResponse { status_code: u16, headers: Vec<(String,String)>, body: Vec<u8> }
+
+fn header(hs:&[(String,String)], name:&str)->Option<String>{
+    hs.iter().find(|(k,_)| k.eq_ignore_ascii_case(name)).map(|(_,v)|v.clone())
+}
+
+#[update(name = "http_request_update")]
+#[candid_method(update, rename = "http_request_update")]
+async fn http_request_update(req: HttpRequest) -> HttpResponse {
+    if !(req.method.eq_ignore_ascii_case("POST") && req.url.ends_with("/bitpay/webhook")) {
+        return HttpResponse{ status_code:404, headers:vec![], body:b"not found".to_vec() };
+    }
+
+    let raw = req.body.clone().unwrap_or_default();
+    let sig = header(&req.headers, "x-signature");
+
+    let secret = bp_token();
+    let ok = verify_webhook_sig(&raw, sig.as_deref(), &secret);
+    if !ok {
+        return HttpResponse{ status_code:401, headers:vec![], body:b"invalid signature".to_vec() };
+    }
+
+    let body_str = String::from_utf8(raw).unwrap_or_default();
+    let v: serde_json::Value = match serde_json::from_str(&body_str) {
+        Ok(v)=>v, Err(_)=> return HttpResponse{ status_code:400, headers:vec![], body:b"bad json".to_vec() }
+    };
+    let invoice_id = v.get("data").and_then(|d| d.get("id")).and_then(|s| s.as_str()).unwrap_or("");
+
+    if !invoice_id.is_empty() {
+        match bp_get_invoice(invoice_id).await {
+            Ok(inv) => {
+                let status_str = inv["status"].as_str().unwrap_or("new");
+                let order_id = inv.get("orderId").and_then(|s| s.as_str()).unwrap_or(invoice_id).to_string();
+
+                let status = match status_str {
+                    "paid" => OrderStatus::Paid,
+                    "confirmed" => OrderStatus::Confirmed,
+                    "complete" => OrderStatus::Complete,
+                    "expired" => OrderStatus::Expired,
+                    "invalid" => OrderStatus::Invalid,
+                    _ => OrderStatus::New,
+                };
+
+                upsert_order(&order_id, |o| {
+                    o.bitpay_invoice_id = Some(invoice_id.to_string());
+                    o.bitpay_invoice_url = inv.get("url").and_then(|u| u.as_str()).map(|s| s.to_string());
+                    if matches!(status, OrderStatus::Confirmed|OrderStatus::Complete) {
+                        if o.status != OrderStatus::Delivered {
+                            o.status = OrderStatus::Delivered;
+                            o.shipment_no = Some(format!("PM-{}", &invoice_id[0..8].to_uppercase()));
+                        }
+                    } else { o.status = status; }
+                });
+            }
+            Err(e) => ic_cdk::println!("get_invoice error: {:?}", e),
+        }
+    }
+
+    HttpResponse{ status_code:200, headers:vec![], body:b"ok".to_vec() }
 }
 
 // ==== Finance API ====
