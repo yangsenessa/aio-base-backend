@@ -679,12 +679,6 @@ fn revert_Index_find_by_keywords_strategy(keywords: Vec<String>) -> String {
     json_result
 }
 
-
-
-thread_local! {
-    static ORDERS: RefCell<BTreeMap<String, Order>> = RefCell::new(BTreeMap::new());
-}
-
 fn now_ns() -> u64 { ic_cdk::api::time() }
 
 

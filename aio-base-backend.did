@@ -497,6 +497,49 @@ type DeviceListResponse = record {
   limit: nat64;
 };
 
+// ==== Order Management Types ====
+
+type OrderStatus = variant {
+  Created;
+  New;
+  Paid;
+  Confirmed;
+  Complete;
+  Expired;
+  Invalid;
+  Delivered;
+};
+
+type CreateOrderArgs = record {
+  order_id: text;
+  amount: float64;
+  currency: text;
+  buyer_email: opt text;
+  shipping_address: text;
+  sku: text;
+  redirect_base: text;
+};
+
+type Order = record {
+  order_id: text;
+  amount: float64;
+  currency: text;
+  buyer_email: opt text;
+  shipping_address: text;
+  sku: text;
+  bitpay_invoice_id: opt text;
+  bitpay_invoice_url: opt text;
+  status: OrderStatus;
+  shipment_no: opt text;
+  created_at_ns: nat64;
+  updated_at_ns: nat64;
+};
+
+type InvoiceResp = record {
+  invoice_id: text;
+  invoice_url: text;
+};
+
 // ==== Pixel Creation Types ====
 
 type ProjectId = text;
@@ -766,4 +809,9 @@ service : {
   "search_devices": (DeviceFilter) -> (vec DeviceInfo) query;
   "update_device_status": (text, DeviceStatus) -> (variant { Ok; Err: text });
   "update_device_last_seen": (text) -> (variant { Ok; Err: text });
+
+  // Order Management API
+  "admin_set_bitpay_pos_token": (text) -> ();
+  "create_order_and_invoice": (CreateOrderArgs) -> (variant { Ok: InvoiceResp; Err: text });
+  "get_order_by_id": (text) -> (opt Order) query;
 }
