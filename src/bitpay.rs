@@ -9,7 +9,7 @@ const USE_PROD: bool = false;
 
 thread_local! { static POS_TOKEN: std::cell::RefCell<Option<String>> = std::cell::RefCell::new(None); }
 pub fn set_pos_token(tok: String) { POS_TOKEN.with(|t| *t.borrow_mut() = Some(tok)); }
-fn token() -> String { POS_TOKEN.with(|t| t.borrow().clone()).expect("POS token not set") }
+pub fn token() -> String { POS_TOKEN.with(|t| t.borrow().clone()).expect("POS token not set") }
 fn base() -> &'static str { if USE_PROD { BITPAY_PROD } else { BITPAY_TEST } }
 
 fn headers() -> Vec<HttpHeader> {
@@ -45,7 +45,7 @@ pub async fn create_invoice(payload: serde_json::Value) -> anyhow::Result<serde_
         headers: headers(),
         body: Some(body),
         max_response_bytes: Some(2_000_000),
-        transform: Some(TransformContext::from_name("transform", vec![])),
+        transform: Some(TransformContext::from_name("transform".to_string(), vec![])),
     };
     let (resp,) = http_request(arg, 50_000_000).await.map_err(|e| anyhow::anyhow!("{:?}", e))?;
     let text = String::from_utf8(resp.body)?;
@@ -58,7 +58,7 @@ pub async fn get_invoice(id: &str) -> anyhow::Result<serde_json::Value> {
     let arg = CanisterHttpRequestArgument {
         url, method: HttpMethod::GET, headers: headers(), body: None,
         max_response_bytes: Some(1_000_000),
-        transform: Some(TransformContext::from_name("transform", vec![])),
+        transform: Some(TransformContext::from_name("transform".to_string(), vec![])),
     };
     let (resp,) = http_request(arg, 30_000_000).await.map_err(|e| anyhow::anyhow!("{:?}", e))?;
     let text = String::from_utf8(resp.body)?;

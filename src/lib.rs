@@ -12,10 +12,16 @@ pub mod mining_reword;
 pub mod token_economy_types;
 pub mod token_economy;
 pub mod stable_mem_storage;
+mod order_types;
+mod types;
 mod bitpay;
 mod hmac;
 
 use candid::candid_method;
+use candid::{CandidType, Deserialize};
+use std::collections::BTreeMap;
+use ic_cdk::{query, update};
+use types::{Order, OrderStatus, CreateOrderArgs, InvoiceResp};
 use agent_asset_types::AgentItem;
 use mcp_asset_types::{McpItem, McpStackRecord};
 use trace_storage::{TraceLog, IOValue};
@@ -36,7 +42,6 @@ use token_economy_types::{
 };
 use token_economy::{record_token_activity, record_credit_activity, get_credits_per_icp, update_icp_usd_price, simulate_credit_from_icp, recharge_and_convert_credits, get_user_credit_balance, get_recharge_history};
 use crate::stable_mem_storage::INVERTED_INDEX_STORE;
-use candid::{CandidType, Deserialize};
 use ic_cdk_timers::TimerId;
 use std::time::Duration;
 use std::cell::RefCell;
@@ -674,38 +679,7 @@ fn revert_Index_find_by_keywords_strategy(keywords: Vec<String>) -> String {
     json_result
 }
 
-#[derive(candid::CandidType, serde::Deserialize, Clone, Debug, PartialEq, Eq)]
-pub enum OrderStatus { Created, New, Paid, Confirmed, Complete, Expired, Invalid, Delivered }
 
-#[derive(candid::CandidType, serde::Deserialize, Clone, Debug)]
-pub struct CreateOrderArgs {
-    pub order_id: String,
-    pub amount: f64,
-    pub currency: String,
-    pub buyer_email: Option<String>,
-    pub shipping_address: String,
-    pub sku: String,
-    pub redirect_base: String,
-}
-
-#[derive(candid::CandidType, serde::Deserialize, Clone, Debug)]
-pub struct Order {
-    pub order_id: String,
-    pub amount: f64,
-    pub currency: String,
-    pub buyer_email: Option<String>,
-    pub shipping_address: String,
-    pub sku: String,
-    pub bitpay_invoice_id: Option<String>,
-    pub bitpay_invoice_url: Option<String>,
-    pub status: OrderStatus,
-    pub shipment_no: Option<String>,
-    pub created_at_ns: u64,
-    pub updated_at_ns: u64,
-}
-
-#[derive(candid::CandidType, serde::Deserialize, Clone, Debug)]
-pub struct InvoiceResp { pub invoice_id: String, pub invoice_url: String }
 
 thread_local! {
     static ORDERS: RefCell<BTreeMap<String, Order>> = RefCell::new(BTreeMap::new());
@@ -713,32 +687,9 @@ thread_local! {
 
 fn now_ns() -> u64 { ic_cdk::api::time() }
 
-fn get_order(order_id: &str) -> Option<Order> {
-    ORDERS.with(|m| m.borrow().get(order_id).cloned())
-}
-fn put_order(o: Order) {
-    ORDERS.with(|m| { m.borrow_mut().insert(o.order_id.clone(), o); });
-}
-fn upsert_order(order_id: &str, patch: impl FnOnce(&mut Order)) -> Order {
-    ORDERS.with(|m| {
-        let mut map = m.borrow_mut();
-        let mut o = map.get(order_id).cloned().unwrap_or_else(|| Order{
-            order_id: order_id.to_string(),
-            amount: 0.0, currency: "USD".into(), buyer_email: None,
-            shipping_address: "".into(), sku: "".into(),
-            bitpay_invoice_id: None, bitpay_invoice_url: None,
-            status: OrderStatus::Created, shipment_no: None,
-            created_at_ns: now_ns(), updated_at_ns: now_ns(),
-        });
-        patch(&mut o);
-        o.updated_at_ns = now_ns();
-        map.insert(order_id.to_string(), o.clone());
-        o
-    })
-}
+
 
 #[update]
-#[candid_method(update)]
 fn admin_set_bitpay_pos_token(token: String) {
     if !ic_cdk::api::is_controller(&ic_cdk::api::caller()) {
         ic_cdk::trap("Only controller can set POS token");
@@ -747,9 +698,8 @@ fn admin_set_bitpay_pos_token(token: String) {
 }
 
 #[update]
-#[candid_method(update)]
 async fn create_order_and_invoice(args: CreateOrderArgs) -> Result<InvoiceResp, String> {
-    if let Some(o) = get_order(&args.order_id) {
+    if let Some(o) = order_types::get(&args.order_id) {
         if let (Some(id), Some(url)) = (&o.bitpay_invoice_id, &o.bitpay_invoice_url) {
             if !matches!(o.status, OrderStatus::Confirmed|OrderStatus::Complete|OrderStatus::Delivered) {
                 return Ok(InvoiceResp{ invoice_id: id.clone(), invoice_url: url.clone() });
@@ -757,7 +707,7 @@ async fn create_order_and_invoice(args: CreateOrderArgs) -> Result<InvoiceResp, 
         }
     }
 
-    put_order(Order{
+    order_types::put(Order{
         order_id: args.order_id.clone(),
         amount: args.amount, currency: args.currency.clone(),
         buyer_email: args.buyer_email.clone(),
@@ -792,7 +742,7 @@ async fn create_order_and_invoice(args: CreateOrderArgs) -> Result<InvoiceResp, 
         "expired" => OrderStatus::Expired, "invalid" => OrderStatus::Invalid, _ => OrderStatus::New
     };
 
-    upsert_order(&args.order_id, |o| {
+    order_types::upsert_patch(&args.order_id, |o| {
         o.bitpay_invoice_id = Some(invoice_id.clone());
         o.bitpay_invoice_url = Some(invoice_url.clone());
         o.status = status;
@@ -802,14 +752,13 @@ async fn create_order_and_invoice(args: CreateOrderArgs) -> Result<InvoiceResp, 
 }
 
 #[query]
-#[candid_method(query)]
 fn get_order_by_id(order_id: String) -> Option<Order> {
-    get_order(&order_id)
+    order_types::get(&order_id)
 }
 
-#[derive(serde::Deserialize)]
+#[derive(serde::Deserialize, CandidType)]
 struct HttpRequest { method: String, url: String, headers: Vec<(String,String)>, body: Option<Vec<u8>> }
-#[derive(serde::Serialize)]
+#[derive(serde::Serialize, CandidType)]
 struct HttpResponse { status_code: u16, headers: Vec<(String,String)>, body: Vec<u8> }
 
 fn header(hs:&[(String,String)], name:&str)->Option<String>{
@@ -853,7 +802,7 @@ async fn http_request_update(req: HttpRequest) -> HttpResponse {
                     _ => OrderStatus::New,
                 };
 
-                upsert_order(&order_id, |o| {
+                order_types::upsert_patch(&order_id, |o| {
                     o.bitpay_invoice_id = Some(invoice_id.to_string());
                     o.bitpay_invoice_url = inv.get("url").and_then(|u| u.as_str()).map(|s| s.to_string());
                     if matches!(status, OrderStatus::Confirmed|OrderStatus::Complete) {
