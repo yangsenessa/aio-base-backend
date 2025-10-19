@@ -18,6 +18,7 @@ pub struct DeviceInfo {
     pub created_at: u64,               // Creation timestamp
     pub updated_at: u64,               // Update timestamp
     pub last_seen: u64,                // Last seen timestamp
+    pub deleted: bool,                 // Soft delete flag
 }
 
 /// Device type enumeration
@@ -130,17 +131,25 @@ pub struct DeviceService;
 
 impl DeviceService {
     /// Add a new device
-    pub fn add_device(device_info: DeviceInfo) -> Result<u64, String> {
+    pub fn add_device(mut device_info: DeviceInfo) -> Result<u64, String> {
         use crate::stable_mem_storage::{DEVICES, DEVICE_OWNER_INDEX, DEVICE_ID_INDEX};
+        
+        ic_cdk::println!("[DeviceService] Adding device: {}", device_info.id);
+        
+        // Ensure new device is not marked as deleted
+        device_info.deleted = false;
         
         // Check if device ID already exists
         let device_id_key = DeviceIdKey {
             device_id: device_info.id.clone(),
         };
         
-        if DEVICE_ID_INDEX.with(|index| {
+        let already_exists = DEVICE_ID_INDEX.with(|index| {
             index.borrow().contains_key(&device_id_key)
-        }) {
+        });
+        ic_cdk::println!("[DeviceService] Device already exists: {}", already_exists);
+        
+        if already_exists {
             return Err("Device ID already exists".to_string());
         }
 
@@ -168,6 +177,16 @@ impl DeviceService {
             index.borrow_mut().insert(device_id_key, device_index);
         });
 
+        // Debug: Verify the device was added to the index
+        let device_id_key_check = DeviceIdKey {
+            device_id: device_info.id.clone(),
+        };
+        let added_successfully = DEVICE_ID_INDEX.with(|index| {
+            index.borrow().contains_key(&device_id_key_check)
+        });
+        ic_cdk::println!("[DeviceService] Device added to index successfully: {}", added_successfully);
+        ic_cdk::println!("[DeviceService] Device index: {}", device_index);
+
         Ok(device_index)
     }
 
@@ -183,9 +202,18 @@ impl DeviceService {
             index.borrow().get(&device_id_key)
         })?;
 
-        DEVICES.with(|devices| {
+        if let Some(device) = DEVICES.with(|devices| {
             devices.borrow().get(device_index)
-        })
+        }) {
+            // Only return non-deleted devices
+            if !device.deleted {
+                Some(device)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
     }
 
     /// Get device list by owner
@@ -201,7 +229,10 @@ impl DeviceService {
                     if let Some(device) = DEVICES.with(|devices| {
                         devices.borrow().get(device_index)
                     }) {
-                        devices.push(device);
+                        // Only include non-deleted devices
+                        if !device.deleted {
+                            devices.push(device);
+                        }
                     }
                 }
             }
@@ -260,24 +291,54 @@ impl DeviceService {
         Ok(())
     }
 
-    /// Delete device
+    /// Delete device (soft delete)
     pub fn delete_device(device_id: &str) -> Result<(), String> {
         use crate::stable_mem_storage::{DEVICES, DEVICE_ID_INDEX, DEVICE_OWNER_INDEX};
+        
+        ic_cdk::println!("[DeviceService] Attempting to delete device: {}", device_id);
         
         let device_id_key = DeviceIdKey {
             device_id: device_id.to_string(),
         };
 
+        // Debug: Check if the key exists in the index
+        let key_exists = DEVICE_ID_INDEX.with(|index| {
+            index.borrow().contains_key(&device_id_key)
+        });
+        ic_cdk::println!("[DeviceService] Device key exists in index: {}", key_exists);
+
+        // Debug: List all keys in the index
+        DEVICE_ID_INDEX.with(|index| {
+            let index_ref = index.borrow();
+            ic_cdk::println!("[DeviceService] Total devices in index: {}", index_ref.len());
+            for (key, _) in index_ref.iter() {
+                ic_cdk::println!("[DeviceService] Found device in index: {}", key.device_id);
+            }
+        });
+
         let device_index = DEVICE_ID_INDEX.with(|index| {
             index.borrow().get(&device_id_key)
         }).ok_or("Device not found")?;
 
-        // Get device info to get owner
+        // Get device info to check if already deleted
         let device = DEVICES.with(|devices| {
             devices.borrow().get(device_index)
         }).ok_or("Failed to get device info")?;
 
-        // Remove index entries
+        if device.deleted {
+            return Err("Device already deleted".to_string());
+        }
+
+        // Mark device as deleted by updating it in storage
+        let mut updated_device = device.clone();
+        updated_device.deleted = true;
+        updated_device.updated_at = ic_cdk::api::time();
+
+        DEVICES.with(|devices| {
+            devices.borrow_mut().set(device_index, &updated_device)
+        });
+
+        // Remove index entries so device won't be found in queries
         DEVICE_ID_INDEX.with(|index| {
             index.borrow_mut().remove(&device_id_key);
         });
@@ -290,8 +351,7 @@ impl DeviceService {
             index.borrow_mut().remove(&owner_key);
         });
 
-        // Note: This doesn't actually delete device data, just marks as deleted
-        // In real applications, soft delete mechanism may be needed
+        ic_cdk::println!("[DeviceService] Device marked as deleted successfully");
         Ok(())
     }
 
@@ -300,19 +360,28 @@ impl DeviceService {
         use crate::stable_mem_storage::DEVICES;
         
         let mut devices = Vec::new();
-        let total = DEVICES.with(|devices_storage| {
+        let total_devices = DEVICES.with(|devices_storage| {
             devices_storage.borrow().len()
         });
 
+        // First, collect all non-deleted devices
+        let mut all_devices = Vec::new();
+        for i in 0..total_devices {
+            if let Some(device) = DEVICES.with(|devices_storage| {
+                devices_storage.borrow().get(i)
+            }) {
+                if !device.deleted {
+                    all_devices.push(device);
+                }
+            }
+        }
+
+        let total = all_devices.len() as u64;
         let start = offset as usize;
-        let end = std::cmp::min(start + limit as usize, total as usize);
+        let end = std::cmp::min(start + limit as usize, all_devices.len());
 
         for i in start..end {
-            if let Some(device) = DEVICES.with(|devices_storage| {
-                devices_storage.borrow().get(i as u64)
-            }) {
-                devices.push(device);
-            }
+            devices.push(all_devices[i].clone());
         }
 
         DeviceListResponse {
@@ -333,6 +402,11 @@ impl DeviceService {
             let devices_ref = devices_storage.borrow();
             for i in 0..devices_ref.len() {
                 if let Some(device) = devices_ref.get(i) {
+                    // Skip deleted devices
+                    if device.deleted {
+                        continue;
+                    }
+
                     let mut matches = true;
 
                     // Check owner filter

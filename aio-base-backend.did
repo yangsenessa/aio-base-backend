@@ -481,6 +481,7 @@ type DeviceInfo = record {
   created_at: nat64;
   updated_at: nat64;
   last_seen: nat64;
+  deleted: bool;
 };
 
 type DeviceFilter = record {
