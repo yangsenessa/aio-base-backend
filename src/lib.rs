@@ -1777,6 +1777,15 @@ use device_types::{DeviceInfo, DeviceType, DeviceStatus, DeviceCapability, Devic
 #[ic_cdk::update]
 fn add_device(device_info: DeviceInfo) -> Result<u64, String> {
     ic_cdk::println!("CALL[add_device] Input: device_info={:?}", device_info);
+    
+    // Validate device information
+    if device_info.device_name.is_none() {
+        return Err("Device name is required for MCP calls".to_string());
+    }
+    if device_info.product_id.is_none() {
+        return Err("Product ID is required for MCP calls".to_string());
+    }
+    
     let result = DeviceService::add_device(device_info);
     ic_cdk::println!("CALL[add_device] Output: {:?}", result);
     result

@@ -10,6 +10,8 @@ use candid::Principal;
 pub struct DeviceInfo {
     pub id: String,                    // Device unique identifier
     pub name: String,                  // Device name
+    pub device_name: Option<String>,   // Device name for MCP calls (extracted from Bluetooth name)
+    pub product_id: Option<String>,    // Product ID for MCP calls
     pub device_type: DeviceType,       // Device type
     pub owner: Principal,              // Device owner
     pub status: DeviceStatus,          // Device status

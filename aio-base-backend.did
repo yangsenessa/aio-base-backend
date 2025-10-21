@@ -473,6 +473,8 @@ type DeviceCapability = variant {
 type DeviceInfo = record {
   id: text;
   name: text;
+  device_name: opt text;
+  product_id: opt text;
   device_type: DeviceType;
   owner: principal;
   status: DeviceStatus;
