@@ -759,6 +759,10 @@ service : {
   "delete_user_profile": (text) -> (variant { Ok: bool; Err: text });
   "get_total_user_profiles": () -> (nat64) query;
 
+  // Email Registration API
+  "generate_principal_from_email_password": (text, text) -> (text);
+  "register_user_with_email": (text, text, text) -> (variant { Ok: text; Err: text });
+
   // Contact API
   "upsert_contact": (Contact) -> (variant { Ok: nat64; Err: text });
   "get_contacts_by_owner": (text) -> (vec Contact) query;

@@ -1374,6 +1374,24 @@ fn upsert_user_profile(profile: UserProfile) -> Result<u64, String> {
     result
 }
 
+// ==== Email Registration API ====
+
+#[ic_cdk::update]
+fn generate_principal_from_email_password(email: String, password: String) -> String {
+    ic_cdk::println!("CALL[generate_principal_from_email_password] Input: email={}", email);
+    let result = society_profile_types::generate_principal_from_email_password(email, password);
+    ic_cdk::println!("CALL[generate_principal_from_email_password] Output: {}", result);
+    result
+}
+
+#[ic_cdk::update]
+fn register_user_with_email(email: String, password: String, nickname: String) -> Result<String, String> {
+    ic_cdk::println!("CALL[register_user_with_email] Input: email={}, nickname={}", email, nickname);
+    let result = society_profile_types::register_user_with_email(email, password, nickname);
+    ic_cdk::println!("CALL[register_user_with_email] Output: {:?}", result);
+    result
+}
+
 #[ic_cdk::query]
 fn get_user_profile_by_principal(principal_id: String) -> Option<UserProfile> {
     ic_cdk::println!("CALL[get_user_profile_by_principal] Input: principal_id={}", principal_id);

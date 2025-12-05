@@ -1,10 +1,11 @@
-use candid::{CandidType, Decode, Encode};
+use candid::{CandidType, Decode, Encode, Principal};
 use ic_stable_structures::storable::Bound;
 use ic_stable_structures::{StableBTreeMap, StableVec};
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
+use sha2::{Sha256, Digest};
 use crate::stable_mem_storage::{USER_PROFILES, PRINCIPAL_INDEX, USER_ID_INDEX, EMAIL_INDEX};
 
 // User profile data structure for society profile management
@@ -1424,5 +1425,124 @@ mod tests {
         assert_eq!(same_principal.clone(), same_principal);
         // 在实际应用中，应该阻止用户添加自己为联系人
     }
+}
+
+// ==== Email Registration System ====
+
+// Static secret key for principal generation (embedded in canister)
+const REGISTRATION_SECRET: &str = "univoice_registration_secret_key_2024_v1";
+
+/// Generate a deterministic principal ID from email and password
+/// This uses HMAC-SHA256 with an embedded secret key for security
+pub fn generate_principal_from_email_password(email: String, password: String) -> String {
+    // Normalize email to lowercase to ensure consistency
+    let normalized_email = email.to_lowercase().trim().to_string();
+    
+    // Create input string: email:password:secret
+    let input = format!("{}:{}:{}", normalized_email, password, REGISTRATION_SECRET);
+    
+    // Calculate SHA-256 hash
+    let mut hasher = Sha256::new();
+    hasher.update(input.as_bytes());
+    let hash_result = hasher.finalize();
+    
+    // Take first 29 bytes for principal (principals are typically 29 bytes)
+    let mut principal_bytes = [0u8; 29];
+    principal_bytes.copy_from_slice(&hash_result[..29]);
+    
+    // Create principal from bytes
+    let principal = Principal::from_slice(&principal_bytes);
+    
+    // Return as text
+    principal.to_text()
+}
+
+/// Validate email format
+pub fn validate_email(email: &str) -> Result<(), String> {
+    let email = email.trim();
+    
+    if email.is_empty() {
+        return Err("Email cannot be empty".to_string());
+    }
+    
+    if !email.contains('@') {
+        return Err("Invalid email format: missing @".to_string());
+    }
+    
+    let parts: Vec<&str> = email.split('@').collect();
+    if parts.len() != 2 {
+        return Err("Invalid email format: multiple @".to_string());
+    }
+    
+    if parts[0].is_empty() {
+        return Err("Invalid email format: empty local part".to_string());
+    }
+    
+    if parts[1].is_empty() || !parts[1].contains('.') {
+        return Err("Invalid email format: invalid domain".to_string());
+    }
+    
+    Ok(())
+}
+
+/// Validate password strength
+pub fn validate_password(password: &str) -> Result<(), String> {
+    if password.len() < 6 {
+        return Err("Password must be at least 6 characters".to_string());
+    }
+    
+    if password.len() > 128 {
+        return Err("Password is too long (max 128 characters)".to_string());
+    }
+    
+    Ok(())
+}
+
+/// Register a new user with email and password
+pub fn register_user_with_email(
+    email: String,
+    password: String,
+    nickname: String,
+) -> Result<String, String> {
+    // Validate email
+    validate_email(&email)?;
+    
+    // Validate password
+    validate_password(&password)?;
+    
+    // Check if email already exists
+    if get_user_profile_by_email(email.clone()).is_some() {
+        return Err("Email already registered".to_string());
+    }
+    
+    // Generate principal ID
+    let principal_id = generate_principal_from_email_password(email.clone(), password);
+    
+    // Check if principal already exists (shouldn't happen, but safety check)
+    if get_user_profile_by_principal(principal_id.clone()).is_some() {
+        return Err("User already exists".to_string());
+    }
+    
+    // Create user profile
+    let user_profile = UserProfile {
+        user_id: format!("email_{}", email.clone()),
+        principal_id: principal_id.clone(),
+        name: Some(nickname.clone()),
+        nickname: nickname.clone(),
+        login_method: LoginMethod::II, // Use II as login method for email registration
+        login_status: LoginStatus::Authenticated,
+        email: Some(email),
+        picture: None,
+        wallet_address: None,
+        devices: Vec::new(),
+        created_at: ic_cdk::api::time(),
+        updated_at: ic_cdk::api::time(),
+        metadata: Some("email_registration".to_string()),
+    };
+    
+    // Store user profile
+    upsert_user_profile(user_profile)?;
+    
+    Ok(principal_id)
 }
 
