@@ -1392,6 +1392,30 @@ fn register_user_with_email(email: String, password: String, nickname: String) -
     result
 }
 
+/// Authenticate user with email and password
+#[ic_cdk::update]
+fn authenticate_user_with_email_password(email: String, password: String) -> Result<String, String> {
+    ic_cdk::println!("CALL[authenticate_user_with_email_password] Input: email={}", email);
+    let result = society_profile_types::authenticate_user_with_email_password(email, password);
+    match &result {
+        Ok(principal_id) => ic_cdk::println!("CALL[authenticate_user_with_email_password] Output: Success - principal_id={}", principal_id),
+        Err(e) => ic_cdk::println!("CALL[authenticate_user_with_email_password] Output: Error - {}", e),
+    }
+    result
+}
+
+/// Change user password
+#[ic_cdk::update]
+fn change_user_password(principal_id: String, old_password: String, new_password: String) -> Result<UserProfile, String> {
+    ic_cdk::println!("CALL[change_user_password] Input: principal_id={}", principal_id);
+    let result = society_profile_types::change_user_password(principal_id, old_password, new_password);
+    match &result {
+        Ok(profile) => ic_cdk::println!("CALL[change_user_password] Output: Success - principal_id={}", profile.principal_id),
+        Err(e) => ic_cdk::println!("CALL[change_user_password] Output: Error - {}", e),
+    }
+    result
+}
+
 #[ic_cdk::query]
 fn get_user_profile_by_principal(principal_id: String) -> Option<UserProfile> {
     ic_cdk::println!("CALL[get_user_profile_by_principal] Input: principal_id={}", principal_id);

@@ -363,6 +363,7 @@ type UserProfile = record {
   picture: opt text;
   wallet_address: opt text;
   devices: vec text;
+  passwd: opt text;
   created_at: nat64;
   updated_at: nat64;
   metadata: opt text;
@@ -762,6 +763,8 @@ service : {
   // Email Registration API
   "generate_principal_from_email_password": (text, text) -> (text);
   "register_user_with_email": (text, text, text) -> (variant { Ok: text; Err: text });
+  "authenticate_user_with_email_password": (text, text) -> (variant { Ok: text; Err: text });
+  "change_user_password": (text, text, text) -> (variant { Ok: UserProfile; Err: text });
 
   // Contact API
   "upsert_contact": (Contact) -> (variant { Ok: nat64; Err: text });

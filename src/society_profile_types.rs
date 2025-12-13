@@ -21,6 +21,7 @@ pub struct UserProfile {
     pub picture: Option<String>,
     pub wallet_address: Option<String>,
     pub devices: Vec<String>,           // User's device list
+    pub passwd: Option<String>,         // Encrypted password (encrypted with principal_id)
     pub created_at: u64,
     pub updated_at: u64,
     pub metadata: Option<String>,       // Additional metadata as JSON
@@ -1203,6 +1204,7 @@ mod tests {
             picture: Some("avatar.jpg".to_string()),
             wallet_address: Some("0x123...".to_string()),
             devices: vec!["Device1".to_string(), "Device2".to_string()],
+            passwd: None,
             created_at: time(),
             updated_at: time(),
             metadata: Some("Test metadata".to_string()),
@@ -1430,7 +1432,7 @@ mod tests {
 // ==== Email Registration System ====
 
 // Static secret key for principal generation (embedded in canister)
-const REGISTRATION_SECRET: &str = "univoice_registration_secret_key_2024_v1";
+const REGISTRATION_SECRET: &str = "We-were-neverapart—Brooklyn1952cc.";
 
 /// Generate a deterministic principal ID from email and password
 /// This uses HMAC-SHA256 with an embedded secret key for security
@@ -1498,6 +1500,30 @@ pub fn validate_password(password: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Encrypt password using principal_id as encryption key
+/// Uses SHA256 hash with principal_id as salt for security
+pub fn encrypt_password(password: &str, principal_id: &str) -> String {
+    // Combine password and principal_id as salt
+    let input = format!("{}:{}", password, principal_id);
+    
+    // Calculate SHA-256 hash
+    let mut hasher = Sha256::new();
+    hasher.update(input.as_bytes());
+    let hash_result = hasher.finalize();
+    
+    // Convert to hex string for storage
+    hex::encode(hash_result)
+}
+
+/// Verify password against encrypted password
+pub fn verify_password(password: &str, encrypted_password: &str, principal_id: &str) -> bool {
+    // Encrypt the provided password with the same method
+    let encrypted = encrypt_password(password, principal_id);
+    
+    // Compare encrypted passwords
+    encrypted == encrypted_password
+}
+
 /// Register a new user with email and password
 pub fn register_user_with_email(
     email: String,
@@ -1516,12 +1542,18 @@ pub fn register_user_with_email(
     }
     
     // Generate principal ID
-    let principal_id = generate_principal_from_email_password(email.clone(), password);
+    let principal_id = generate_principal_from_email_password(email.clone(), password.clone());
     
     // Check if principal already exists (shouldn't happen, but safety check)
     if get_user_profile_by_principal(principal_id.clone()).is_some() {
         return Err("User already exists".to_string());
     }
+    
+    // Encrypt password using principal_id as encryption key
+    let encrypted_password = encrypt_password(&password, &principal_id);
+    
+    // Save email clone for logging
+    let email_for_log = email.clone();
     
     // Create user profile
     let user_profile = UserProfile {
@@ -1535,6 +1567,7 @@ pub fn register_user_with_email(
         picture: None,
         wallet_address: None,
         devices: Vec::new(),
+        passwd: Some(encrypted_password),
         created_at: ic_cdk::api::time(),
         updated_at: ic_cdk::api::time(),
         metadata: Some("email_registration".to_string()),
@@ -1543,6 +1576,125 @@ pub fn register_user_with_email(
     // Store user profile
     upsert_user_profile(user_profile)?;
     
+    ic_cdk::println!("User registered successfully: principal_id={}, email={}", principal_id, email_for_log);
+    
     Ok(principal_id)
+}
+
+/// Authenticate user with email and password
+/// Returns the principal_id if authentication succeeds, or an error message
+pub fn authenticate_user_with_email_password(
+    email: String,
+    password: String,
+) -> Result<String, String> {
+    ic_cdk::println!("CALL[authenticate_user_with_email_password] Input: email={}", email);
+    
+    // Validate email format
+    validate_email(&email)?;
+    
+    // Validate password format
+    validate_password(&password)?;
+    
+    // Get user profile by email
+    let user_profile = get_user_profile_by_email(email.clone())
+        .ok_or_else(|| {
+            let error_msg = format!("User not found with email: {}", email);
+            ic_cdk::println!("CALL[authenticate_user_with_email_password] Error: {}", error_msg);
+            error_msg
+        })?;
+    
+    // Check if user has a password set
+    let encrypted_password = user_profile.passwd
+        .ok_or_else(|| {
+            let error_msg = "User account does not have a password set".to_string();
+            ic_cdk::println!("CALL[authenticate_user_with_email_password] Error: {}", error_msg);
+            error_msg
+        })?;
+    
+    // Verify password
+    let is_valid = verify_password(&password, &encrypted_password, &user_profile.principal_id);
+    
+    if !is_valid {
+        let error_msg = "Invalid password. Authentication failed".to_string();
+        ic_cdk::println!("CALL[authenticate_user_with_email_password] Error: {} - principal_id={}", error_msg, user_profile.principal_id);
+        return Err(error_msg);
+    }
+    
+    // Update login status
+    let profile_index = PRINCIPAL_INDEX.with(|index| {
+        let index = index.borrow();
+        index.get(&PrincipalKey { principal_id: user_profile.principal_id.clone() }).map(|idx| idx)
+    });
+    
+    if let Some(index) = profile_index {
+        if let Some(mut profile) = get_user_profile(index) {
+            profile.login_status = LoginStatus::Authenticated;
+            profile.updated_at = ic_cdk::api::time();
+            let _ = upsert_user_profile(profile)?;
+        }
+    }
+    
+    ic_cdk::println!("CALL[authenticate_user_with_email_password] Output: Success - principal_id={}", user_profile.principal_id);
+    
+    Ok(user_profile.principal_id)
+}
+
+/// Change user password
+/// Requires the old password for verification, then sets the new password
+pub fn change_user_password(
+    principal_id: String,
+    old_password: String,
+    new_password: String,
+) -> Result<UserProfile, String> {
+    ic_cdk::println!("CALL[change_user_password] Input: principal_id={}", principal_id);
+    
+    // Validate new password
+    validate_password(&new_password)?;
+    
+    // Get user profile
+    let profile_index = PRINCIPAL_INDEX.with(|index| {
+        let index = index.borrow();
+        index.get(&PrincipalKey { principal_id: principal_id.clone() }).map(|idx| idx)
+    });
+    
+    let mut user_profile = if let Some(index) = profile_index {
+        get_user_profile(index)
+            .ok_or_else(|| {
+                let error_msg = format!("User not found with principal_id: {}", principal_id);
+                ic_cdk::println!("CALL[change_user_password] Error: {}", error_msg);
+                error_msg
+            })?
+    } else {
+        let error_msg = format!("User not found with principal_id: {}", principal_id);
+        ic_cdk::println!("CALL[change_user_password] Error: {}", error_msg);
+        return Err(error_msg);
+    };
+    
+    // Verify old password if password exists
+    if let Some(ref encrypted_old_password) = user_profile.passwd {
+        let is_valid = verify_password(&old_password, encrypted_old_password, &principal_id);
+        if !is_valid {
+            let error_msg = "Old password is incorrect. Password change failed".to_string();
+            ic_cdk::println!("CALL[change_user_password] Error: {} - principal_id={}", error_msg, principal_id);
+            return Err(error_msg);
+        }
+    } else {
+        // If no password is set, we can set a new password without old password verification
+        ic_cdk::println!("CALL[change_user_password] Warning: No existing password found, setting new password without verification");
+    }
+    
+    // Encrypt new password
+    let encrypted_new_password = encrypt_password(&new_password, &principal_id);
+    
+    // Update password
+    user_profile.passwd = Some(encrypted_new_password);
+    user_profile.updated_at = ic_cdk::api::time();
+    
+    // Save updated profile
+    let _ = upsert_user_profile(user_profile.clone())?;
+    
+    ic_cdk::println!("CALL[change_user_password] Output: Success - principal_id={}", principal_id);
+    
+    Ok(user_profile)
 }
 

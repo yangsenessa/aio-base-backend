@@ -25,6 +25,7 @@ hmac = "0.12"
 sha2 = "0.10"
 base64 = "0.21"
 urlencoding = "2"
+hex = "0.4"
 anyhow = "1.0.100"
 # Removed getrandom and rand - using IC-native randomness instead
 
